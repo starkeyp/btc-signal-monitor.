@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>BTC Signal Monitor</h1>
-    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 9.</p>
+    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 10.</p>
     <div class="row">
       <label>Chart</label>
       <button id="r24" class="on">24 hours</button>
@@ -166,30 +166,35 @@ function drawBars(canvas, values, mode){
   });
 }
 
-async function coinbaseHourly(){
-  const end=Math.floor(Date.now()/1000), start=end-32*24*3600, chunk=280*3600;
-  const windows=[];
-  for(let c=start;c<end;c+=chunk) windows.push([c,Math.min(c+chunk,end)]);
-  const batches=await Promise.all(windows.map(([a,b])=>
-    fetch(`https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=3600&start=${new Date(a*1000).toISOString()}&end=${new Date(b*1000).toISOString()}`).then(r=>{
-      if(!r.ok) throw new Error("coinbase "+r.status); return r.json();
-    })
-  ));
-  const map=new Map();
-  batches.flat().forEach(row=>map.set(row[0],{time:row[0]*1000,close:+row[4]}));
-  return [...map.values()].sort((a,b)=>a.time-b.time);
+async function getJson(url, ms=8000){
+  const ctrl=new AbortController();
+  const t=setTimeout(()=>ctrl.abort(), ms);
+  try{
+    const r=await fetch(url,{signal:ctrl.signal,headers:{Accept:"application/json"}});
+    if(!r.ok) throw new Error(r.status+" "+url);
+    return await r.json();
+  } finally { clearTimeout(t); }
 }
+
+async function coinbaseHourly(){
+  const raw=await getJson("https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=3600",12000);
+  return raw.map(row=>({time:row[0]*1000,close:+row[4]})).sort((a,b)=>a.time-b.time);
+}
+
 async function coinbaseTicker(){
   const [t,s]=await Promise.all([
-    fetch("https://api.exchange.coinbase.com/products/BTC-USD/ticker").then(r=>r.json()),
-    fetch("https://api.exchange.coinbase.com/products/BTC-USD/stats").then(r=>r.json()),
+    getJson("https://api.exchange.coinbase.com/products/BTC-USD/ticker"),
+    getJson("https://api.exchange.coinbase.com/products/BTC-USD/stats"),
   ]);
   return { price:+t.price, open:+s.open, high:+s.high, low:+s.low, source:"Coinbase Exchange" };
 }
+
 async function bitstampFallback(){
-  const t=await fetch("https://www.bitstamp.net/api/v2/ticker/btcusd/").then(r=>r.json());
-  const o=await fetch("https://www.bitstamp.net/api/v2/ohlc/btcusd/?step=3600&limit=720").then(r=>r.json());
-  hourly = o.data.ohlc.map(r=>({time:+r.timestamp*1000,close:+r.close}));
+  const t=await getJson("https://www.bitstamp.net/api/v2/ticker/btcusd/");
+  try{
+    const o=await getJson("https://www.bitstamp.net/api/v2/ohlc/btcusd/?step=3600&limit=168");
+    hourly = o.data.ohlc.map(r=>({time:+r.timestamp*1000,close:+r.close}));
+  } catch {}
   return { price:+t.last, open:+t.open, high:+t.high, low:+t.low, source:"Bitstamp" };
 }
 
@@ -216,29 +221,26 @@ function resample(bars, hours){
 
 async function load(){
   try{
-    let tick;
-    try {
-      if(hourly.length<100) hourly = await coinbaseHourly();
-      else {
-        const fresh = await coinbaseHourly();
-        if(fresh.length>hourly.length-10) hourly=fresh;
-      }
-      tick = await coinbaseTicker();
-    } catch {
-      tick = await bitstampFallback();
-    }
+    let tick=null;
+    try { tick = await coinbaseTicker(); }
+    catch { tick = await bitstampFallback(); }
     lastOk=Date.now();
     setLive("live", "Live · "+tick.source+" · 0s ago");
-    const hours = signalTf==="4h" ? 4 : signalTf==="1d" ? 24 : 1;
-    const signalBars = resample(hourly, hours);
-    const closes=signalBars.map(p=>p.close);
-    const s20=sma(closes,20), s50=sma(closes,50), r=rsi(closes), h=macd(closes);
-    const [sig,why]=decide(tick.price,s20,s50,r,h);
     const chg=tick.open?((tick.price-tick.open)/tick.open)*100:0;
     $("px").textContent="$"+money(tick.price);
     $("chg").textContent=`${chg>=0?"+":""}${chg.toFixed(2)}% 24h · H ${money(tick.high)} / L ${money(tick.low)}`;
     $("chg").className="muted "+(chg>=0?"up":"down");
     $("src").textContent="BTC / USD · "+tick.source;
+
+    if(hourly.length<50){
+      try { hourly = await coinbaseHourly(); }
+      catch { if(!hourly.length) await bitstampFallback(); }
+    }
+    const hours = signalTf==="4h" ? 4 : signalTf==="1d" ? 24 : 1;
+    const signalBars = resample(hourly, hours);
+    const closes=signalBars.map(p=>p.close);
+    const s20=sma(closes,20), s50=sma(closes,50), r=rsi(closes), h=macd(closes);
+    const [sig,why]=decide(tick.price,s20,s50,r,h);
     $("siglab").textContent="Signal · "+signalTf;
     $("sig").textContent=sig; $("sig").className="badge "+sig.toLowerCase();
     $("stats").textContent=`SMA20 ${s20?("$"+money(s20)):"—"} · SMA50 ${s50?("$"+money(s50)):"—"} · RSI ${r==null?"—":r.toFixed(1)} · MACD ${h==null?"—":h.toFixed(1)}`;
@@ -248,23 +250,21 @@ async function load(){
     const up=view.length>1 ? view.at(-1).close>=view[0].close : chg>=0;
     try {
       drawLine($("chart"), view, up?"#3dd68c":"#ff5d6c");
-      const histSrc = signalBars;
-      const last48=histSrc.slice(-48);
+      const last48=signalBars.slice(-48);
       const series=last48.map((_,i)=>{
-        const sl=histSrc.slice(0, histSrc.length-48+i+1).map(p=>p.close);
+        const sl=signalBars.slice(0, signalBars.length-48+i+1).map(p=>p.close);
         return { sma20:sma(sl,20), sma50:sma(sl,50), rsi:rsi(sl), macd:macd(sl) };
       });
       drawBars($("h20"), series.map(x=>x.sma20), "sma");
       drawBars($("h50"), series.map(x=>x.sma50), "sma");
       drawBars($("hrsi"), series.map(x=>x.rsi), "rsi");
       drawBars($("hmacd"), series.map(x=>x.macd), "signed");
-    } catch (drawErr) {
-      console.warn(drawErr);
-    }
+    } catch (drawErr) { console.warn(drawErr); }
     $("log").textContent = `${new Date().toLocaleTimeString()}  ${sig}  $${money(tick.price)}  ${tick.source}\n`+$("log").textContent.split("\n").slice(0,14).join("\n");
   } catch(e){
     setLive("down", "Disconnected — "+e.message);
-    $("why").textContent="Feed error: "+e.message+". Host this file over https and leave the tab open.";
+    $("why").textContent="Feed error: "+e.message;
+    $("chg").textContent="Could not load ticker: "+e.message;
   }
 }
 
