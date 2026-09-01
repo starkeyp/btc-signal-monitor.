@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>BTC Signal Monitor</h1>
-    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 6 — SMA scale fix.</p>
+    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 7.</p>
     <div class="row">
       <label>Chart</label>
       <button id="r24" class="on">24 hours</button>
@@ -197,7 +197,21 @@ function setLive(state, text){
   $("live").textContent=text;
 }
 
-async function load(){
+function resample(bars, hours){
+  if(hours<=1) return bars.slice();
+  const ms=hours*3600e3, out=[];
+  let bucket=-1, last=null;
+  for(const p of bars){
+    const b=Math.floor(p.time/ms);
+    if(b!==bucket){
+      if(last) out.push(last);
+      bucket=b;
+    }
+    last=p;
+  }
+  if(last) out.push(last);
+  return out;
+}
   try{
     let tick;
     try {
@@ -211,7 +225,9 @@ async function load(){
       tick = await bitstampFallback();
     }
     lastOk=Date.now();
-    const closes=hourly.map(p=>p.close);
+    const hours = signalTf==="4h" ? 4 : signalTf==="1d" ? 24 : 1;
+    const signalBars = resample(hourly, hours);
+    const closes=signalBars.map(p=>p.close);
     const s20=sma(closes,20), s50=sma(closes,50), r=rsi(closes), h=macd(closes);
     const [sig,why]=decide(tick.price,s20,s50,r,h);
     const chg=tick.open?((tick.price-tick.open)/tick.open)*100:0;
@@ -220,7 +236,7 @@ async function load(){
     $("chg").className="muted "+(chg>=0?"up":"down");
     $("src").textContent="BTC / USD · "+tick.source;
     $("sig").textContent=sig; $("sig").className="badge "+sig.toLowerCase();
-    $("why").textContent=why;
+    $("why").textContent=`${signalTf} signal · ${why}`;
     const cut=Date.now()-RANGE[chartRange];
     const view=hourly.filter(p=>p.time>=cut);
     const up=view.length>1 ? view.at(-1).close>=view[0].close : chg>=0;
@@ -285,3 +301,4 @@ document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState=
 </script>
 </body>
 </html>
+
