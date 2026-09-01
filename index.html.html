@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BTC Signal Monitor</title>
+  <style>
+    :root {
+      --bg: #0b1016;
+      --surface: #131a23;
+      --surface-2: #1a2330;
+      --fg: #e8eef6;
+      --muted: #8b9bb0;
+      --line: #273445;
+      --buy: #3dd68c;
+      --sell: #ff5d6c;
+      --hold: #e0b445;
+      --accent: #6aa8ff;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+    main { max-width: 1040px; margin: 0 auto; padding: 20px 16px 48px; }
+    h1 { margin: 0 0 6px; font-size: 26px; }
+    .muted { color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 14px 0; }
+    button {
+      background: var(--surface); color: var(--fg); border: 1px solid var(--line);
+      border-radius: 8px; min-height: 44px; padding: 0 12px; cursor: pointer;
+    }
+    button.on { border-color: var(--accent); background: #152033; }
+    .grid { display: grid; gap: 12px; }
+    @media (min-width: 860px) {
+      .hero { grid-template-columns: 1.45fr 1fr; }
+      .hists { grid-template-columns: 1fr 1fr; }
+    }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+    .price { font-size: 36px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .up { color: var(--buy); } .down { color: var(--sell); }
+    .badge { display: inline-block; font-size: 24px; font-weight: 700; padding: 8px 14px; border-radius: 10px; }
+    .buy { background: rgba(61,214,140,.14); color: var(--buy); }
+    .sell { background: rgba(255,93,108,.14); color: var(--sell); }
+    .hold { background: rgba(224,180,69,.14); color: var(--hold); }
+    canvas { width: 100%; height: 220px; display: block; }
+    .warn { border: 1px solid #3a4a22; background: #141b10; color: #d7e6a8; padding: 12px; border-radius: 10px; font-size: 13px; line-height: 1.5; margin-bottom: 14px; }
+    .dot { width: 9px; height: 9px; border-radius: 99px; background: var(--buy); position: relative; display: inline-block; }
+    .dot::after {
+      content: ""; position: absolute; inset: 0; border-radius: 99px; background: var(--buy);
+      animation: pulse 1.6s ease-out infinite;
+    }
+    .dot.stale { background: var(--hold); }
+    .dot.stale::after { animation: none; }
+    .dot.down { background: var(--sell); }
+    .dot.down::after { animation: none; }
+    @keyframes pulse { 70%,100% { transform: scale(1.7); opacity: 0; } }
+    .tip {
+      position: fixed; pointer-events: none; z-index: 5;
+      background: var(--surface-2); border: 1px solid var(--line);
+      border-radius: 8px; padding: 8px 10px; font-size: 12px; display: none;
+    }
+    pre { white-space: pre-wrap; color: var(--muted); font-size: 12px; margin: 0; }
+    label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="warn">
+      This copy runs in your browser, not inside Grok. Leave this tab open to keep the feed alive.
+      Host the file on https (Netlify Drop, GitHub Pages) — a raw file open often blocks prices.
+    </div>
+    <p class="muted" style="display:flex;align-items:center;gap:8px;margin:0 0 6px">
+      <span class="dot" id="dot"></span>
+      <span id="live">Connecting…</span>
+    </p>
+    <h1>BTC Signal Monitor</h1>
+    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open.</p>
+    <div class="row">
+      <label>Chart</label>
+      <button id="r24" class="on">24 hours</button>
+      <button id="r7">Week</button>
+      <button id="r30">Month</button>
+      <label style="margin-left:8px">Signal</label>
+      <button id="i1" class="on">1h</button>
+      <button id="i4">4h</button>
+      <button id="id">1d</button>
+      <button id="go">Refresh</button>
+    </div>
+    <div class="grid hero">
+      <div class="card">
+        <div class="muted" id="src">BTC / USD</div>
+        <div class="price" id="px">—</div>
+        <div class="muted" id="chg">Waiting for first tick…</div>
+        <canvas id="chart"></canvas>
+      </div>
+      <div class="card">
+        <div class="muted">Signal</div>
+        <div class="badge hold" id="sig">HOLD</div>
+        <p class="muted" id="why" style="margin-top:12px">Connecting…</p>
+      </div>
+    </div>
+    <div class="grid hists" style="margin-top:12px">
+      <div class="card"><div class="muted">SMA 20 · 48h</div><canvas id="h20" height="90"></canvas></div>
+      <div class="card"><div class="muted">SMA 50 · 48h</div><canvas id="h50" height="90"></canvas></div>
+      <div class="card"><div class="muted">RSI 14 · 48h</div><canvas id="hrsi" height="90"></canvas></div>
+      <div class="card"><div class="muted">MACD hist · 48h</div><canvas id="hmacd" height="90"></canvas></div>
+    </div>
+    <div class="card" style="margin-top:12px"><pre id="log">No ticks yet.</pre></div>
+  </main>
+  <div class="tip" id="tip"></div>
+<script>
+const $ = (id) => document.getElementById(id);
+let signalTf = "1h";
+let chartRange = "24h";
+let lastOk = 0;
+let hourly = [];
+let wakeLock = null;
+const RANGE = { "24h": 24*3600e3, "7d": 7*24*3600e3, "30d": 30*24*3600e3 };
+
+function sma(a,n){ if(a.length<n) return null; return a.slice(-n).reduce((x,y)=>x+y,0)/n; }
+function ema(a,n){ if(a.length<n) return null; const k=2/(n+1); let e=a.slice(0,n).reduce((x,y)=>x+y,0)/n; for(let i=n;i<a.length;i++) e=a[i]*k+e*(1-k); return e; }
+function rsi(a,n=14){ if(a.length<n+1) return null; let g=0,l=0; for(let i=a.length-n;i<a.length;i++){ const d=a[i]-a[i-1]; if(d>=0) g+=d; else l-=d; } if(!l) return 100; return 100-100/(1+(g/l)); }
+function macd(a){ if(a.length<35) return null; const s=[]; for(let i=26;i<=a.length;i++){ const sl=a.slice(0,i); s.push(ema(sl,12)-ema(sl,26)); } return s.at(-1)-ema(s,9); }
+function decide(p,s20,s50,r,h){
+  if([s20,s50,r,h].some(v=>v==null)) return ["HOLD","Need more candles."];
+  if(p>s50 && r<35) return ["BUY",`Oversold bounce above SMA50, RSI ${r.toFixed(1)}.`];
+  if(p>s20 && r>=35 && r<=55 && h>0) return ["BUY",`Trend resume above SMA20, RSI ${r.toFixed(1)}.`];
+  if(r>72 && p<s20) return ["SELL",`RSI ${r.toFixed(1)} overbought under SMA20.`];
+  if(p<s50 && h<0 && r>55) return ["SELL",`Below SMA50, falling MACD, RSI ${r.toFixed(1)}.`];
+  return ["HOLD",`No rule fired. SMA20 $${s20.toFixed(0)} / SMA50 $${s50.toFixed(0)}, RSI ${r.toFixed(1)}.`];
+}
+function money(n){ return Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+function drawLine(canvas, points, color){
+  const ctx=canvas.getContext("2d"), dpr=devicePixelRatio||1, w=canvas.clientWidth, h=canvas.clientHeight;
+  canvas.width=w*dpr; canvas.height=h*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
+  if(points.length<2) return;
+  const ys=points.map(p=>p.close), min=Math.min(...ys), max=Math.max(...ys), pad=(max-min)*0.08||1, lo=min-pad, hi=max+pad;
+  ctx.beginPath();
+  points.forEach((p,i)=>{ const x=8+i/(points.length-1)*(w-16); const y=h-10-((p.close-lo)/(hi-lo))*(h-20); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+  ctx.strokeStyle=color; ctx.lineWidth=2; ctx.stroke();
+  canvas._pts = points; canvas._geo = {w,h,lo,hi};
+}
+function drawBars(canvas, values, mode){
+  const ctx=canvas.getContext("2d"), dpr=devicePixelRatio||1, w=canvas.clientWidth||300, h=90;
+  canvas.width=w*dpr; canvas.height=h*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
+  const nums=values.filter(v=>v!=null); if(!nums.length) return;
+  let min, max;
+  if(mode==="signed"){
+    min=Math.min(0,...nums); max=Math.max(0,...nums);
+  } else if(mode==="rsi"){
+    min=0; max=100;
+  } else {
+    min=Math.min(...nums); max=Math.max(...nums);
+    const pad=(max-min)*0.15 || 1;
+    min-=pad; max+=pad;
+  }
+  const span=(max-min)||1;
+  const bw=Math.max(2,(w-8)/values.length-1);
+  values.forEach((v,i)=>{
+    if(v==null) return;
+    const x=4+i*((w-8)/values.length);
+    const y=h-8-((v-min)/span)*(h-16);
+    const base = mode==="signed" ? (h-8-((0-min)/span)*(h-16)) : (h-8);
+    ctx.fillStyle = mode==="signed" ? (v>=0 ? "#3dd68c" : "#ff5d6c") : "#6aa8ff";
+    ctx.fillRect(x, Math.min(y,base), bw, Math.max(2,Math.abs(y-base)));
+  });
+}
+
+async function coinbaseHourly(){
+  const end=Math.floor(Date.now()/1000), start=end-32*24*3600, chunk=280*3600;
+  const windows=[];
+  for(let c=start;c<end;c+=chunk) windows.push([c,Math.min(c+chunk,end)]);
+  const batches=await Promise.all(windows.map(([a,b])=>
+    fetch(`https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=3600&start=${new Date(a*1000).toISOString()}&end=${new Date(b*1000).toISOString()}`).then(r=>{
+      if(!r.ok) throw new Error("coinbase "+r.status); return r.json();
+    })
+  ));
+  const map=new Map();
+  batches.flat().forEach(row=>map.set(row[0],{time:row[0]*1000,close:+row[4]}));
+  return [...map.values()].sort((a,b)=>a.time-b.time);
+}
+async function coinbaseTicker(){
+  const [t,s]=await Promise.all([
+    fetch("https://api.exchange.coinbase.com/products/BTC-USD/ticker").then(r=>r.json()),
+    fetch("https://api.exchange.coinbase.com/products/BTC-USD/stats").then(r=>r.json()),
+  ]);
+  return { price:+t.price, open:+s.open, high:+s.high, low:+s.low, source:"Coinbase Exchange" };
+}
+async function bitstampFallback(){
+  const t=await fetch("https://www.bitstamp.net/api/v2/ticker/btcusd/").then(r=>r.json());
+  const o=await fetch("https://www.bitstamp.net/api/v2/ohlc/btcusd/?step=3600&limit=720").then(r=>r.json());
+  hourly = o.data.ohlc.map(r=>({time:+r.timestamp*1000,close:+r.close}));
+  return { price:+t.last, open:+t.open, high:+t.high, low:+t.low, source:"Bitstamp" };
+}
+
+function setLive(state, text){
+  $("dot").className="dot"+(state==="stale"?" stale":state==="down"?" down":"");
+  $("live").textContent=text;
+}
+
+async function load(){
+  try{
+    let tick;
+    try {
+      if(hourly.length<100) hourly = await coinbaseHourly();
+      else {
+        const fresh = await coinbaseHourly();
+        if(fresh.length>hourly.length-10) hourly=fresh;
+      }
+      tick = await coinbaseTicker();
+    } catch {
+      tick = await bitstampFallback();
+    }
+    lastOk=Date.now();
+    const closes=hourly.map(p=>p.close);
+    const s20=sma(closes,20), s50=sma(closes,50), r=rsi(closes), h=macd(closes);
+    const [sig,why]=decide(tick.price,s20,s50,r,h);
+    const chg=tick.open?((tick.price-tick.open)/tick.open)*100:0;
+    $("px").textContent="$"+money(tick.price);
+    $("chg").textContent=`${chg>=0?"+":""}${chg.toFixed(2)}% 24h · H ${money(tick.high)} / L ${money(tick.low)}`;
+    $("chg").className="muted "+(chg>=0?"up":"down");
+    $("src").textContent="BTC / USD · "+tick.source;
+    $("sig").textContent=sig; $("sig").className="badge "+sig.toLowerCase();
+    $("why").textContent=why;
+    const cut=Date.now()-RANGE[chartRange];
+    const view=hourly.filter(p=>p.time>=cut);
+    const up=view.length>1 ? view.at(-1).close>=view[0].close : chg>=0;
+    drawLine($("chart"), view, up?"#3dd68c":"#ff5d6c");
+    const last48=hourly.slice(-48);
+    const series=last48.map((_,i)=>{
+      const sl=hourly.slice(0, hourly.length-48+i+1).map(p=>p.close);
+      return { sma20:sma(sl,20), sma50:sma(sl,50), rsi:rsi(sl), macd:macd(sl) };
+    });
+    drawBars($("h20"), series.map(x=>x.sma20), "sma");
+    drawBars($("h50"), series.map(x=>x.sma50), "sma");
+    drawBars($("hrsi"), series.map(x=>x.rsi), "rsi");
+    drawBars($("hmacd"), series.map(x=>x.macd), "signed");
+    $("log").textContent = `${new Date().toLocaleTimeString()}  ${sig}  $${money(tick.price)}  ${tick.source}\n`+$("log").textContent.split("\n").slice(0,14).join("\n");
+    setLive("live", `Live · ${tick.source} · 0s ago · tab must stay open`);
+  } catch(e){
+    setLive("down", "Disconnected — "+e.message);
+    $("why").textContent="Feed error: "+e.message+". Host this file over https and leave the tab open.";
+  }
+}
+
+function tickClock(){
+  if(!lastOk){ setLive("down","Disconnected from data feed"); return; }
+  const age=Math.round((Date.now()-lastOk)/1000);
+  if(age>45) setLive("stale",`Stale · last tick ${age}s ago`);
+  else setLive("live", `Live · feed ok · ${age}s ago`);
+}
+
+async function keepAwake(){
+  try { if(navigator.wakeLock) wakeLock = await navigator.wakeLock.request("screen"); } catch {}
+}
+
+function on(id, fn){ $(id).onclick=fn; }
+function mark(group, id){ group.forEach(x=>$(x).classList.remove("on")); $(id).classList.add("on"); }
+on("r24",()=>{chartRange="24h"; mark(["r24","r7","r30"],"r24"); load();});
+on("r7",()=>{chartRange="7d"; mark(["r24","r7","r30"],"r7"); load();});
+on("r30",()=>{chartRange="30d"; mark(["r24","r7","r30"],"r30"); load();});
+on("i1",()=>{signalTf="1h"; mark(["i1","i4","id"],"i1"); load();});
+on("i4",()=>{signalTf="4h"; mark(["i1","i4","id"],"i4"); load();});
+on("id",()=>{signalTf="1d"; mark(["i1","i4","id"],"id"); load();});
+on("go",()=>load());
+
+const chart=$("chart"), tip=$("tip");
+chart.addEventListener("mousemove", (ev)=>{
+  const pts=chart._pts, geo=chart._geo; if(!pts||pts.length<2) return;
+  const rect=chart.getBoundingClientRect();
+  const x=ev.clientX-rect.left;
+  const i=Math.max(0,Math.min(pts.length-1, Math.round((x-8)/(geo.w-16)*(pts.length-1))));
+  const p=pts[i];
+  tip.style.display="block";
+  tip.style.left=(ev.clientX+12)+"px";
+  tip.style.top=(ev.clientY-36)+"px";
+  tip.innerHTML=`${new Date(p.time).toLocaleString()}<br><b>$${money(p.close)}</b>`;
+});
+chart.addEventListener("mouseleave",()=>{ tip.style.display="none"; });
+
+load();
+keepAwake();
+setInterval(load, 15000);
+setInterval(tickClock, 1000);
+document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible"){ load(); keepAwake(); } });
+</script>
+</body>
+</html>
