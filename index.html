@@ -64,14 +64,15 @@
 <body>
   <main>
     <div class="warn">
-      Non - Trading.
+      This copy runs in your browser, not inside Grok. Leave this tab open to keep the feed alive.
+      Host the file on https (Netlify Drop, GitHub Pages) — a raw file open often blocks prices.
     </div>
     <p class="muted" style="display:flex;align-items:center;gap:8px;margin:0 0 6px">
       <span class="dot" id="dot"></span>
       <span id="live">Connecting…</span>
     </p>
     <h1>BTC Signal Monitor</h1>
-    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 8.</p>
+    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 9.</p>
     <div class="row">
       <label>Chart</label>
       <button id="r24" class="on">24 hours</button>
@@ -212,6 +213,8 @@ function resample(bars, hours){
   if(last) out.push(last);
   return out;
 }
+
+async function load(){
   try{
     let tick;
     try {
@@ -225,6 +228,7 @@ function resample(bars, hours){
       tick = await bitstampFallback();
     }
     lastOk=Date.now();
+    setLive("live", "Live · "+tick.source+" · 0s ago");
     const hours = signalTf==="4h" ? 4 : signalTf==="1d" ? 24 : 1;
     const signalBars = resample(hourly, hours);
     const closes=signalBars.map(p=>p.close);
@@ -242,19 +246,22 @@ function resample(bars, hours){
     const cut=Date.now()-RANGE[chartRange];
     const view=hourly.filter(p=>p.time>=cut);
     const up=view.length>1 ? view.at(-1).close>=view[0].close : chg>=0;
-    drawLine($("chart"), view, up?"#3dd68c":"#ff5d6c");
-    const histSrc = signalBars;
-    const last48=histSrc.slice(-48);
-    const series=last48.map((_,i)=>{
-      const sl=histSrc.slice(0, histSrc.length-48+i+1).map(p=>p.close);
-      return { sma20:sma(sl,20), sma50:sma(sl,50), rsi:rsi(sl), macd:macd(sl) };
-    });
-    drawBars($("h20"), series.map(x=>x.sma20), "sma");
-    drawBars($("h50"), series.map(x=>x.sma50), "sma");
-    drawBars($("hrsi"), series.map(x=>x.rsi), "rsi");
-    drawBars($("hmacd"), series.map(x=>x.macd), "signed");
+    try {
+      drawLine($("chart"), view, up?"#3dd68c":"#ff5d6c");
+      const histSrc = signalBars;
+      const last48=histSrc.slice(-48);
+      const series=last48.map((_,i)=>{
+        const sl=histSrc.slice(0, histSrc.length-48+i+1).map(p=>p.close);
+        return { sma20:sma(sl,20), sma50:sma(sl,50), rsi:rsi(sl), macd:macd(sl) };
+      });
+      drawBars($("h20"), series.map(x=>x.sma20), "sma");
+      drawBars($("h50"), series.map(x=>x.sma50), "sma");
+      drawBars($("hrsi"), series.map(x=>x.rsi), "rsi");
+      drawBars($("hmacd"), series.map(x=>x.macd), "signed");
+    } catch (drawErr) {
+      console.warn(drawErr);
+    }
     $("log").textContent = `${new Date().toLocaleTimeString()}  ${sig}  $${money(tick.price)}  ${tick.source}\n`+$("log").textContent.split("\n").slice(0,14).join("\n");
-    setLive("live", `Live · ${tick.source} · 0s ago · tab must stay open`);
   } catch(e){
     setLive("down", "Disconnected — "+e.message);
     $("why").textContent="Feed error: "+e.message+". Host this file over https and leave the tab open.";
