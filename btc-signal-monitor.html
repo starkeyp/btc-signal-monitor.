@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BTC Signal Monitor</title>
+  <style>
+    :root {
+      --bg: #0b1016;
+      --surface: #131a23;
+      --fg: #e8eef6;
+      --muted: #8b9bb0;
+      --line: #273445;
+      --buy: #3dd68c;
+      --sell: #ff5d6c;
+      --hold: #e0b445;
+      --accent: #6aa8ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+    }
+    main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { margin: 0 0 8px; font-size: 26px; }
+    p.lead { color: var(--muted); line-height: 1.5; max-width: 640px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 20px; }
+    button {
+      background: var(--surface);
+      color: var(--fg);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      min-height: 44px;
+      padding: 0 14px;
+      cursor: pointer;
+    }
+    button.on { border-color: var(--accent); }
+    .grid { display: grid; gap: 12px; }
+    @media (min-width: 800px) { .hero { grid-template-columns: 1.4fr 1fr; } .stats { grid-template-columns: repeat(4, 1fr); } }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+    .price { font-size: 36px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .up { color: var(--buy); } .down { color: var(--sell); }
+    .muted { color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .badge { display: inline-block; font-size: 24px; font-weight: 700; padding: 8px 14px; border-radius: 10px; }
+    .buy { background: rgba(61,214,140,.14); color: var(--buy); }
+    .sell { background: rgba(255,93,108,.14); color: var(--sell); }
+    .hold { background: rgba(224,180,69,.14); color: var(--hold); }
+    canvas { width: 100%; height: 200px; }
+    .warn { border: 1px solid #5a3a1d; background: #1b140c; color: #e6c089; padding: 12px; border-radius: 10px; font-size: 13px; line-height: 1.5; margin-bottom: 16px; }
+    pre { white-space: pre-wrap; color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="warn">Educational monitor only. It does not place trades. Serve this file over http/https — opening it as a raw file can block the price feed.</div>
+    <h1>BTC Signal Monitor</h1>
+    <p class="lead">Standalone copy. Pulls BTC-USD from Coinbase, then Kraken, then Bitstamp. Refresh every 20 seconds.</p>
+    <div class="row">
+      <button id="h" class="on">1h</button>
+      <button id="4">4h</button>
+      <button id="d">1d</button>
+      <button id="r">Refresh</button>
+    </div>
+    <div class="grid hero">
+      <div class="card">
+        <div class="muted" id="src">BTC / USD</div>
+        <div class="price" id="px">—</div>
+        <div class="muted" id="chg">Waiting for first tick…</div>
+        <canvas id="chart"></canvas>
+      </div>
+      <div class="card">
+        <div class="muted">Signal</div>
+        <div class="badge hold" id="sig">HOLD</div>
+        <p class="muted" id="why" style="margin-top:12px">Connecting to a public market feed…</p>
+      </div>
+    </div>
+    <div class="grid stats" style="margin-top:12px">
+      <div class="card"><div class="muted">SMA 20</div><div id="s20">—</div></div>
+      <div class="card"><div class="muted">SMA 50</div><div id="s50">—</div></div>
+      <div class="card"><div class="muted">RSI 14</div><div id="rsi">—</div></div>
+      <div class="card"><div class="muted">MACD hist</div><div id="macd">—</div></div>
+    </div>
+    <div class="card" style="margin-top:12px"><pre id="log">No ticks yet.</pre></div>
+  </main>
+<script>
+const $ = (id) => document.getElementById(id);
+let interval = "1h";
+function sma(a, n){ if(a.length<n) return null; return a.slice(-n).reduce((x,y)=>x+y,0)/n; }
+function ema(a,n){ if(a.length<n) return null; const k=2/(n+1); let e=a.slice(0,n).reduce((x,y)=>x+y,0)/n; for(let i=n;i<a.length;i++) e=a[i]*k+e*(1-k); return e; }
+function rsi(a,n=14){ if(a.length<n+1) return null; let g=0,l=0; for(let i=a.length-n;i<a.length;i++){ const d=a[i]-a[i-1]; if(d>=0) g+=d; else l-=d; } if(!l) return 100; return 100-100/(1+g/l); }
+function macd(a){ if(a.length<35) return null; const s=[]; for(let i=26;i<=a.length;i++){ const sl=a.slice(0,i); s.push(ema(sl,12)-ema(sl,26)); } const sig=ema(s,9); return s.at(-1)-sig; }
+function decide(p,s20,s50,r,h){
+  if([s20,s50,r,h].some(v=>v==null)) return ["HOLD","Need more candles."];
+  if(p>s50 && r<35) return ["BUY",`Oversold bounce above SMA50 ($${s50.toFixed(0)}), RSI ${r.toFixed(1)}.`];
+  if(p>s20 && r>=35 && r<=55 && h>0) return ["BUY",`Trend resume above SMA20, RSI ${r.toFixed(1)}, MACD up.`];
+  if(r>72 && p<s20) return ["SELL",`RSI ${r.toFixed(1)} overbought and price below SMA20.`];
+  if(p<s50 && h<0 && r>55) return ["SELL",`Below SMA50 with falling MACD, RSI ${r.toFixed(1)}.`];
+  return ["HOLD",`No rule fired. SMA20 $${s20.toFixed(0)} / SMA50 $${s50.toFixed(0)}, RSI ${r.toFixed(1)}.`];
+}
+function money(n){ return Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function draw(closes){
+  const c=$("chart"), ctx=c.getContext("2d"), dpr=devicePixelRatio||1, w=c.clientWidth, h=c.clientHeight;
+  c.width=w*dpr; c.height=h*dpr; ctx.scale(dpr,dpr); ctx.clearRect(0,0,w,h);
+  if(closes.length<2) return;
+  const min=Math.min(...closes), max=Math.max(...closes), pad=(max-min)*0.08||1, lo=min-pad, hi=max+pad;
+  ctx.beginPath();
+  closes.forEach((v,i)=>{ const x=8+i/(closes.length-1)*(w-16); const y=h-10-((v-lo)/(hi-lo))*(h-20); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+  ctx.strokeStyle = closes.at(-1)>=closes[0] ? "#3dd68c" : "#ff5d6c";
+  ctx.lineWidth=2; ctx.stroke();
+}
+async function coinbase(){
+  const gran = interval==="1d"?86400:interval==="4h"?21600:3600;
+  const [t,s,c] = await Promise.all([
+    fetch("https://api.exchange.coinbase.com/products/BTC-USD/ticker").then(r=>r.json()),
+    fetch("https://api.exchange.coinbase.com/products/BTC-USD/stats").then(r=>r.json()),
+    fetch("https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity="+gran).then(r=>r.json()),
+  ]);
+  const price=+t.price, open=+s.open;
+  const closes=c.map(r=>+r[4]).reverse();
+  return { price, chg: open?((price-open)/open)*100:0, high:+s.high, low:+s.low, source:"Coinbase Exchange", closes };
+}
+async function bitstamp(){
+  const step = interval==="1d"?86400:interval==="4h"?14400:3600;
+  const [t,c] = await Promise.all([
+    fetch("https://www.bitstamp.net/api/v2/ticker/btcusd/").then(r=>r.json()),
+    fetch("https://www.bitstamp.net/api/v2/ohlc/btcusd/?step="+step+"&limit=120").then(r=>r.json()),
+  ]);
+  const price=+t.last, open=+t.open;
+  return { price, chg: open?((price-open)/open)*100:0, high:+t.high, low:+t.low, source:"Bitstamp", closes:c.data.ohlc.map(r=>+r.close) };
+}
+async function load(){
+  let snap;
+  try { snap = await coinbase(); }
+  catch { snap = await bitstamp(); }
+  const s20=sma(snap.closes,20), s50=sma(snap.closes,50), r=rsi(snap.closes), h=macd(snap.closes);
+  const [sig, why]=decide(snap.price,s20,s50,r,h);
+  $("px").textContent="$"+money(snap.price);
+  $("chg").textContent=`${snap.chg>=0?"+":""}${snap.chg.toFixed(2)}% 24h · H ${money(snap.high)} / L ${money(snap.low)} · ${new Date().toLocaleString()}`;
+  $("chg").className="muted "+(snap.chg>=0?"up":"down");
+  $("src").textContent="BTC / USD · "+snap.source;
+  $("sig").textContent=sig;
+  $("sig").className="badge "+sig.toLowerCase();
+  $("why").textContent=why;
+  $("s20").textContent=s20?"$"+money(s20):"—";
+  $("s50").textContent=s50?"$"+money(s50):"—";
+  $("rsi").textContent=r!=null?r.toFixed(1):"—";
+  $("macd").textContent=h!=null?h.toFixed(1):"—";
+  draw(snap.closes.slice(-80));
+  $("log").textContent = `${new Date().toLocaleTimeString()}  ${sig}  $${money(snap.price)}  ${snap.source}\n`+$("log").textContent.split("\n").slice(0,12).join("\n");
+}
+function setTf(tf, btn){
+  interval=tf;
+  ["h","4","d"].forEach(id=>$ (id).classList.remove("on"));
+  btn.classList.add("on");
+  load().catch(e=>$("why").textContent="Feed error: "+e.message);
+}
+$("h").onclick=()=>setTf("1h",$("h"));
+$("4").onclick=()=>setTf("4h",$("4"));
+$("d").onclick=()=>setTf("1d",$("d"));
+$("r").onclick=()=>load().catch(e=>$("why").textContent="Feed error: "+e.message);
+load().catch(e=>$("why").textContent="Feed error: "+e.message+". Host this file on https (GitHub Pages, Netlify Drop, etc).");
+setInterval(()=>load().catch(()=>{}), 20000);
+</script>
+</body>
+</html>
