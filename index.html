@@ -64,14 +64,15 @@
 <body>
   <main>
     <div class="warn">
-      Starkey Trading
+      This copy runs in your browser, not inside Grok. Leave this tab open to keep the feed alive.
+      Host the file on https (Netlify Drop, GitHub Pages) — a raw file open often blocks prices.
     </div>
     <p class="muted" style="display:flex;align-items:center;gap:8px;margin:0 0 6px">
       <span class="dot" id="dot"></span>
       <span id="live">Connecting…</span>
     </p>
     <h1>BTC Signal Monitor</h1>
-    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 10.</p>
+    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 11.</p>
     <div class="row">
       <label>Chart</label>
       <button id="r24" class="on">24 hours</button>
@@ -112,6 +113,7 @@ let signalTf = "1h";
 let chartRange = "24h";
 let lastOk = 0;
 let hourly = [];
+let fine = [];
 let wakeLock = null;
 const RANGE = { "24h": 24*3600e3, "7d": 7*24*3600e3, "30d": 30*24*3600e3 };
 
@@ -139,8 +141,8 @@ function drawLine(canvas, points, color){
   ctx.strokeStyle=color; ctx.lineWidth=2; ctx.stroke();
   canvas._pts = points; canvas._geo = {w,h,lo,hi};
 }
-function drawBars(canvas, values, mode){
-  const ctx=canvas.getContext("2d"), dpr=devicePixelRatio||1, w=canvas.clientWidth||300, h=90;
+function drawBars(canvas, values, mode, times){
+  const ctx=canvas.getContext("2d"), dpr=devicePixelRatio||1, w=canvas.clientWidth||300, h=canvas.clientHeight||90;
   canvas.width=w*dpr; canvas.height=h*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
   const nums=values.filter(v=>v!=null); if(!nums.length) return;
   let min, max;
@@ -163,6 +165,8 @@ function drawBars(canvas, values, mode){
     ctx.fillStyle = mode==="signed" ? (v>=0 ? "#3dd68c" : "#ff5d6c") : "#6aa8ff";
     ctx.fillRect(x, Math.min(y,base), bw, Math.max(2,Math.abs(y-base)));
   });
+  canvas._hover = values.map((v,i)=>({ time: times?.[i], value:v, mode }));
+  canvas._geo = {w};
 }
 
 async function getJson(url, ms=8000){
@@ -175,6 +179,10 @@ async function getJson(url, ms=8000){
   } finally { clearTimeout(t); }
 }
 
+async function coinbaseFine(){
+  const raw=await getJson("https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=900",12000);
+  return raw.map(row=>({time:row[0]*1000,close:+row[4]})).sort((a,b)=>a.time-b.time);
+}
 async function coinbaseHourly(){
   const raw=await getJson("https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=3600",12000);
   return raw.map(row=>({time:row[0]*1000,close:+row[4]})).sort((a,b)=>a.time-b.time);
@@ -232,8 +240,10 @@ async function load(){
     $("src").textContent="BTC / USD · "+tick.source;
 
     if(hourly.length<50){
-      try { hourly = await coinbaseHourly(); }
-      catch { if(!hourly.length) await bitstampFallback(); }
+      try { hourly = await coinbaseHourly(); } catch { if(!hourly.length) await bitstampFallback(); }
+    }
+    if(fine.length<20){
+      try { fine = await coinbaseFine(); } catch { fine = hourly; }
     }
     const hours = signalTf==="4h" ? 4 : signalTf==="1d" ? 24 : 1;
     const signalBars = resample(hourly, hours);
@@ -245,19 +255,21 @@ async function load(){
     $("stats").textContent=`SMA20 ${s20?("$"+money(s20)):"—"} · SMA50 ${s50?("$"+money(s50)):"—"} · RSI ${r==null?"—":r.toFixed(1)} · MACD ${h==null?"—":h.toFixed(1)}`;
     $("why").textContent=why;
     const cut=Date.now()-RANGE[chartRange];
-    const view=hourly.filter(p=>p.time>=cut);
+    const source = chartRange==="24h" && fine.length>10 ? fine : hourly;
+    const view=source.filter(p=>p.time>=cut);
     const up=view.length>1 ? view.at(-1).close>=view[0].close : chg>=0;
     try {
       drawLine($("chart"), view, up?"#3dd68c":"#ff5d6c");
       const last48=signalBars.slice(-48);
+      const times=last48.map(p=>p.time);
       const series=last48.map((_,i)=>{
         const sl=signalBars.slice(0, signalBars.length-48+i+1).map(p=>p.close);
         return { sma20:sma(sl,20), sma50:sma(sl,50), rsi:rsi(sl), macd:macd(sl) };
       });
-      drawBars($("h20"), series.map(x=>x.sma20), "sma");
-      drawBars($("h50"), series.map(x=>x.sma50), "sma");
-      drawBars($("hrsi"), series.map(x=>x.rsi), "rsi");
-      drawBars($("hmacd"), series.map(x=>x.macd), "signed");
+      drawBars($("h20"), series.map(x=>x.sma20), "sma", times);
+      drawBars($("h50"), series.map(x=>x.sma50), "sma", times);
+      drawBars($("hrsi"), series.map(x=>x.rsi), "rsi", times);
+      drawBars($("hmacd"), series.map(x=>x.macd), "signed", times);
     } catch (drawErr) { console.warn(drawErr); }
     $("log").textContent = `${new Date().toLocaleTimeString()}  ${sig}  $${money(tick.price)}  ${tick.source}\n`+$("log").textContent.split("\n").slice(0,14).join("\n");
   } catch(e){
@@ -295,19 +307,35 @@ on("i4",()=>setTf("4h","i4"));
 on("id",()=>setTf("1d","id"));
 on("go",()=>load());
 
-const chart=$("chart"), tip=$("tip");
-chart.addEventListener("mousemove", (ev)=>{
-  const pts=chart._pts, geo=chart._geo; if(!pts||pts.length<2) return;
-  const rect=chart.getBoundingClientRect();
-  const x=ev.clientX-rect.left;
-  const i=Math.max(0,Math.min(pts.length-1, Math.round((x-8)/(geo.w-16)*(pts.length-1))));
-  const p=pts[i];
-  tip.style.display="block";
-  tip.style.left=(ev.clientX+12)+"px";
-  tip.style.top=(ev.clientY-36)+"px";
-  tip.innerHTML=`${new Date(p.time).toLocaleString()}<br><b>$${money(p.close)}</b>`;
-});
-chart.addEventListener("mouseleave",()=>{ tip.style.display="none"; });
+const tip=$("tip");
+function bindHover(canvas, kind){
+  canvas.addEventListener("mousemove", (ev)=>{
+    const rect=canvas.getBoundingClientRect();
+    const x=ev.clientX-rect.left;
+    let html=null;
+    if(canvas._pts && canvas._geo){
+      const pts=canvas._pts, geo=canvas._geo;
+      const i=Math.max(0,Math.min(pts.length-1, Math.round((x-8)/(geo.w-16)*(pts.length-1))));
+      const p=pts[i];
+      html=`${new Date(p.time).toLocaleString()}<br><b>$${money(p.close)}</b>`;
+    } else if(canvas._hover){
+      const rows=canvas._hover;
+      const i=Math.max(0,Math.min(rows.length-1, Math.floor(x/Math.max(1,rect.width/rows.length))));
+      const row=rows[i];
+      const label = row.mode==="rsi" || row.mode==="signed"
+        ? (row.value==null?"—":Number(row.value).toFixed(2))
+        : (row.value==null?"—":"$"+money(row.value));
+      html=`${row.time?new Date(row.time).toLocaleString():""}<br><b>${label}</b>`;
+    }
+    if(!html) return;
+    tip.style.display="block";
+    tip.style.left=(ev.clientX+12)+"px";
+    tip.style.top=(ev.clientY-36)+"px";
+    tip.innerHTML=html;
+  });
+  canvas.addEventListener("mouseleave",()=>{ tip.style.display="none"; });
+}
+["chart","h20","h50","hrsi","hmacd"].forEach(id=>bindHover($(id)));
 
 load();
 keepAwake();
