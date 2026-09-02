@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>BTC Signal Monitor</h1>
-    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 13.</p>
+    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 14.</p>
     <div class="row">
       <label>Chart</label>
       <button id="r24" class="on">24 hours</button>
@@ -96,6 +96,16 @@
         <div class="badge hold" id="sig">HOLD</div>
         <p class="muted" id="stats" style="margin-top:10px">SMA20 — · SMA50 — · RSI — · MACD —</p>
         <p class="muted" id="why" style="margin-top:12px">Connecting…</p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <p class="muted" style="text-transform:uppercase;letter-spacing:.04em;color:var(--fg)">My holdings</p>
+      <p class="muted">Stored in this browser only.</p>
+      <div class="row" style="align-items:flex-end">
+        <label>Bitcoin held<br><input id="holdBtc" inputmode="decimal" placeholder="0.00" style="min-height:44px;margin-top:6px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:0 10px;font-family:ui-monospace,monospace"></label>
+        <label>Cash (USD)<br><input id="holdCash" inputmode="decimal" placeholder="0.00" style="min-height:44px;margin-top:6px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:0 10px;font-family:ui-monospace,monospace"></label>
+        <div><div class="muted">BTC value</div><div id="holdBtcVal" class="price" style="font-size:22px">—</div></div>
+        <div><div class="muted">Total</div><div id="holdTotal" class="price" style="font-size:22px">—</div></div>
       </div>
     </div>
     <div class="grid hists" style="margin-top:12px">
@@ -122,8 +132,32 @@ const $ = (id) => document.getElementById(id);
 let signalTf = "1h";
 let chartRange = "24h";
 let lastOk = 0;
+let lastPrice = null;
 let hourly = [];
 let fine = [];
+function loadHoldings(){
+  try{
+    const s=JSON.parse(localStorage.getItem("btc-monitor-holdings")||"{}");
+    if(s.btc) $("holdBtc").value=s.btc;
+    if(s.cash) $("holdCash").value=s.cash;
+  } catch {}
+  paintHoldings();
+}
+function saveHoldings(){
+  localStorage.setItem("btc-monitor-holdings", JSON.stringify({
+    btc: Number($("holdBtc").value)||0,
+    cash: Number($("holdCash").value)||0,
+  }));
+  paintHoldings();
+}
+function paintHoldings(){
+  const btc=Number($("holdBtc").value)||0;
+  const cash=Number($("holdCash").value)||0;
+  if(lastPrice==null){ $("holdBtcVal").textContent="—"; $("holdTotal").textContent="—"; return; }
+  const btcVal=btc*lastPrice;
+  $("holdBtcVal").textContent="$"+money(btcVal);
+  $("holdTotal").textContent="$"+money(btcVal+cash);
+}
 let barsAt = 0;
 let wakeLock = null;
 const RANGE = { "24h": 24*3600e3, "7d": 7*24*3600e3, "30d": 30*24*3600e3 };
@@ -246,6 +280,8 @@ async function load(){
     setLive("live", "Live · "+tick.source+" · 0s ago");
     const chg=tick.open?((tick.price-tick.open)/tick.open)*100:0;
     $("px").textContent="$"+money(tick.price);
+    lastPrice=tick.price;
+    paintHoldings();
     $("chg").textContent=`${chg>=0?"+":""}${chg.toFixed(2)}% 24h · H ${money(tick.high)} / L ${money(tick.low)}`;
     $("chg").className="muted "+(chg>=0?"up":"down");
     $("src").textContent="BTC / USD · "+tick.source;
@@ -349,7 +385,9 @@ function bindHover(canvas, kind){
   canvas.addEventListener("mouseleave",()=>{ tip.style.display="none"; });
 }
 ["chart","h20","h50","hrsi","hmacd"].forEach(id=>bindHover($(id)));
-
+$("holdBtc").addEventListener("input", saveHoldings);
+$("holdCash").addEventListener("input", saveHoldings);
+loadHoldings();
 load();
 keepAwake();
 setInterval(load, 15000);
