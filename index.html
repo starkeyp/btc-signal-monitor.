@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>BTC Signal Monitor</h1>
-    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 14.</p>
+    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 15.</p>
     <div class="row">
       <label>Chart</label>
       <button id="r24" class="on">24 hours</button>
@@ -103,9 +103,12 @@
       <p class="muted">Stored in this browser only.</p>
       <div class="row" style="align-items:flex-end">
         <label>Bitcoin held<br><input id="holdBtc" inputmode="decimal" placeholder="0.00" style="min-height:44px;margin-top:6px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:0 10px;font-family:ui-monospace,monospace"></label>
+        <label>Purchase price USD/BTC<br><input id="holdCost" inputmode="decimal" placeholder="65000" style="min-height:44px;margin-top:6px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:0 10px;font-family:ui-monospace,monospace"></label>
         <label>Cash (USD)<br><input id="holdCash" inputmode="decimal" placeholder="0.00" style="min-height:44px;margin-top:6px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:0 10px;font-family:ui-monospace,monospace"></label>
+        <div><div class="muted">Cost basis</div><div id="holdCostVal" class="price" style="font-size:22px">—</div></div>
         <div><div class="muted">BTC value</div><div id="holdBtcVal" class="price" style="font-size:22px">—</div></div>
-        <div><div class="muted">Total</div><div id="holdTotal" class="price" style="font-size:22px">—</div></div>
+        <div><div class="muted">Performance</div><div id="holdPnl" class="price" style="font-size:22px">—</div></div>
+        <div><div class="muted">Total + cash</div><div id="holdTotal" class="price" style="font-size:22px">—</div></div>
       </div>
     </div>
     <div class="grid hists" style="margin-top:12px">
@@ -140,6 +143,7 @@ function loadHoldings(){
     const s=JSON.parse(localStorage.getItem("btc-monitor-holdings")||"{}");
     if(s.btc) $("holdBtc").value=s.btc;
     if(s.cash) $("holdCash").value=s.cash;
+    if(s.cost) $("holdCost").value=s.cost;
   } catch {}
   paintHoldings();
 }
@@ -147,16 +151,35 @@ function saveHoldings(){
   localStorage.setItem("btc-monitor-holdings", JSON.stringify({
     btc: Number($("holdBtc").value)||0,
     cash: Number($("holdCash").value)||0,
+    cost: Number($("holdCost").value)||0,
   }));
   paintHoldings();
 }
 function paintHoldings(){
   const btc=Number($("holdBtc").value)||0;
   const cash=Number($("holdCash").value)||0;
-  if(lastPrice==null){ $("holdBtcVal").textContent="—"; $("holdTotal").textContent="—"; return; }
+  const cost=Number($("holdCost").value)||0;
+  if(lastPrice==null){
+    $("holdBtcVal").textContent="—";
+    $("holdTotal").textContent="—";
+    $("holdCostVal").textContent="—";
+    $("holdPnl").textContent="—";
+    return;
+  }
   const btcVal=btc*lastPrice;
+  const basis=cost>0?btc*cost:null;
   $("holdBtcVal").textContent="$"+money(btcVal);
   $("holdTotal").textContent="$"+money(btcVal+cash);
+  $("holdCostVal").textContent=basis==null?"—":"$"+money(basis);
+  if(basis==null){
+    $("holdPnl").textContent="—";
+    $("holdPnl").className="price";
+  } else {
+    const pnl=btcVal-basis;
+    const pct=basis?(pnl/basis)*100:0;
+    $("holdPnl").textContent=(pnl>=0?"+":"−")+"$"+money(Math.abs(pnl))+" ("+(pct>=0?"+":"")+pct.toFixed(2)+"%)";
+    $("holdPnl").style.color=pnl>=0?"var(--buy)":"var(--sell)";
+  }
 }
 let barsAt = 0;
 let wakeLock = null;
@@ -387,6 +410,7 @@ function bindHover(canvas, kind){
 ["chart","h20","h50","hrsi","hmacd"].forEach(id=>bindHover($(id)));
 $("holdBtc").addEventListener("input", saveHoldings);
 $("holdCash").addEventListener("input", saveHoldings);
+$("holdCost").addEventListener("input", saveHoldings);
 loadHoldings();
 load();
 keepAwake();
