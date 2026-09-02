@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>BTC Signal Monitor</h1>
-    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 11.</p>
+    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 12.</p>
     <div class="row">
       <label>Chart</label>
       <button id="r24" class="on">24 hours</button>
@@ -103,6 +103,16 @@
       <div class="card"><div class="muted">SMA 50 · 48h</div><canvas id="h50" height="90"></canvas></div>
       <div class="card"><div class="muted">RSI 14 · 48h</div><canvas id="hrsi" height="90"></canvas></div>
       <div class="card"><div class="muted">MACD hist · 48h</div><canvas id="hmacd" height="90"></canvas></div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <p class="muted" style="text-transform:uppercase;letter-spacing:.04em;color:var(--fg)">How to read this board</p>
+      <p class="muted"><b style="color:var(--fg)">SMA 20 / SMA 50</b> are average closes over 20 and 50 candles. Price above both usually means an uptrend; below both a downtrend. The 48h bars show whether those averages are rising or falling.</p>
+      <p class="muted"><b style="color:var(--fg)">RSI 14</b> is momentum on a 0–100 scale. Below 30 is oversold (bounce risk up). Above 70 is overbought (fade risk down). Mid 40–60 is neutral.</p>
+      <p class="muted"><b style="color:var(--fg)">MACD histogram</b> is trend acceleration. Green / positive = upside pressure building. Red / negative = downside pressure building. A flip through zero is a momentum change.</p>
+      <p class="muted" style="text-transform:uppercase;letter-spacing:.04em;color:var(--fg);margin-top:14px">Signal rules</p>
+      <p class="muted"><span style="color:var(--buy)">BUY</span> if price is above SMA50 and RSI is under 35, or price reclaims SMA20 with RSI 35–55 and a rising MACD histogram.</p>
+      <p class="muted"><span style="color:var(--sell)">SELL</span> if RSI is over 72 and price is under SMA20, or price is under SMA50 with a falling MACD histogram and RSI still above 55.</p>
+      <p class="muted"><span style="color:var(--hold)">HOLD</span> otherwise. 1h / 4h / 1d only changes which candles the signal uses. Educational only — this page does not place trades.</p>
     </div>
     <div class="card" style="margin-top:12px"><pre id="log">No ticks yet.</pre></div>
   </main>
