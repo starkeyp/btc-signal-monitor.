@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>BTC Signal Monitor</h1>
-    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 12.</p>
+    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 13.</p>
     <div class="row">
       <label>Chart</label>
       <button id="r24" class="on">24 hours</button>
@@ -124,6 +124,7 @@ let chartRange = "24h";
 let lastOk = 0;
 let hourly = [];
 let fine = [];
+let barsAt = 0;
 let wakeLock = null;
 const RANGE = { "24h": 24*3600e3, "7d": 7*24*3600e3, "30d": 30*24*3600e3 };
 
@@ -249,12 +250,14 @@ async function load(){
     $("chg").className="muted "+(chg>=0?"up":"down");
     $("src").textContent="BTC / USD · "+tick.source;
 
-    if(hourly.length<50){
-      try { hourly = await coinbaseHourly(); } catch { if(!hourly.length) await bitstampFallback(); }
+    if(!hourly.length || Date.now()-barsAt>20000){
+      try { hourly = await coinbaseHourly(); barsAt=Date.now(); } catch { if(!hourly.length) await bitstampFallback(); }
     }
-    if(fine.length<20){
-      try { fine = await coinbaseFine(); } catch { fine = hourly; }
+    if(!fine.length || Date.now()-barsAt>20000){
+      try { fine = await coinbaseFine(); } catch { if(!fine.length) fine = hourly; }
     }
+    if(hourly.length) hourly[hourly.length-1] = { time:hourly[hourly.length-1].time, close:tick.price };
+    if(fine.length) fine[fine.length-1] = { time:fine[fine.length-1].time, close:tick.price };
     const hours = signalTf==="4h" ? 4 : signalTf==="1d" ? 24 : 1;
     const signalBars = resample(hourly, hours);
     const closes=signalBars.map(p=>p.close);
