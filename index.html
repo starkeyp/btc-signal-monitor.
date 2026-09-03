@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>Signal Monitor</h1>
-    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds. Build 18.</p>
+    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds. Build 19.</p>
     <div class="row">
       <label>Asset</label>
       <button id="aBtc" class="on">BTC</button>
@@ -223,6 +223,10 @@ function money(n){
   const d = asset==="XRP" || Number(n)<100 ? 4 : 2;
   return Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
 }
+function fmtMacd(n){ return Number(n).toFixed(Math.abs(n)<1 ? 4 : 1); }
+  const d = asset==="XRP" || Number(n)<100 ? 4 : 2;
+  return Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+}
 
 function drawLine(canvas, points, color){
   const ctx=canvas.getContext("2d"), dpr=devicePixelRatio||1, w=canvas.clientWidth, h=canvas.clientHeight;
@@ -349,7 +353,7 @@ async function load(){
     const [sig,why]=decide(tick.price,s20,s50,r,h);
     $("siglab").textContent="Signal · "+signalTf;
     $("sig").textContent=sig; $("sig").className="badge "+sig.toLowerCase();
-    $("stats").textContent=`SMA20 ${s20?("$"+money(s20)):"—"} · SMA50 ${s50?("$"+money(s50)):"—"} · RSI ${r==null?"—":r.toFixed(1)} · MACD ${h==null?"—":h.toFixed(1)}`;
+    $("stats").textContent=`SMA20 ${s20?("$"+money(s20)):"—"} · SMA50 ${s50?("$"+money(s50)):"—"} · RSI ${r==null?"—":r.toFixed(1)} · MACD ${h==null?"—":fmtMacd(h)}`;
     $("why").textContent=why;
     const cut=Date.now()-RANGE[chartRange];
     const source = chartRange==="24h" && fine.length>10 ? fine : hourly;
@@ -371,7 +375,7 @@ async function load(){
       $("v20").textContent=lastH?.sma20==null?"—":"$"+money(lastH.sma20);
       $("v50").textContent=lastH?.sma50==null?"—":"$"+money(lastH.sma50);
       $("vrsi").textContent=lastH?.rsi==null?"—":lastH.rsi.toFixed(1);
-      $("vmacd").textContent=lastH?.macd==null?"—":lastH.macd.toFixed(1);
+      $("vmacd").textContent=lastH?.macd==null?"—":fmtMacd(lastH.macd);
     } catch (drawErr) { console.warn(drawErr); }
     $("log").textContent = `${new Date().toLocaleTimeString()}  ${sig}  $${money(tick.price)}  ${tick.source}\n`+$("log").textContent.split("\n").slice(0,14).join("\n");
   } catch(e){
@@ -427,7 +431,7 @@ function bindHover(canvas, kind){
       const i=Math.max(0,Math.min(rows.length-1, Math.floor(x/Math.max(1,rect.width/rows.length))));
       const row=rows[i];
       const label = row.mode==="rsi" || row.mode==="signed"
-        ? (row.value==null?"—":Number(row.value).toFixed(2))
+        ? (row.value==null?"—":fmtMacd(row.value))
         : (row.value==null?"—":"$"+money(row.value));
       html=`${row.time?new Date(row.time).toLocaleString():""}<br><b>${label}</b>`;
     }
