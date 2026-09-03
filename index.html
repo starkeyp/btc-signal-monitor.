@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>Signal Monitor</h1>
-    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds. Build 20.</p>
+    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds. Build 21.</p>
     <div class="row">
       <label>Asset</label>
       <button id="aBtc" class="on">BTC</button>
@@ -103,15 +103,22 @@
     </div>
     <div class="card" style="margin-top:12px">
       <p class="muted" style="text-transform:uppercase;letter-spacing:.04em;color:var(--fg)">My holdings</p>
-      <p class="muted">Stored in this browser only.</p>
-      <div class="row" style="align-items:flex-end">
-        <label>Bitcoin held<br><input id="holdBtc" inputmode="decimal" placeholder="0.00" style="min-height:44px;margin-top:6px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:0 10px;font-family:ui-monospace,monospace"></label>
-        <label>Purchase price USD/BTC<br><input id="holdCost" inputmode="decimal" placeholder="65000" style="min-height:44px;margin-top:6px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:0 10px;font-family:ui-monospace,monospace"></label>
-        <label>Cash (USD)<br><input id="holdCash" inputmode="decimal" placeholder="0.00" style="min-height:44px;margin-top:6px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:0 10px;font-family:ui-monospace,monospace"></label>
-        <div><div class="muted">Cost basis</div><div id="holdCostVal" class="price" style="font-size:22px">—</div></div>
-        <div><div class="muted">BTC value</div><div id="holdBtcVal" class="price" style="font-size:22px">—</div></div>
-        <div><div class="muted">Performance</div><div id="holdPnl" class="price" style="font-size:22px">—</div></div>
-        <div><div class="muted">Total + cash</div><div id="holdTotal" class="price" style="font-size:22px">—</div></div>
+      <p class="muted">BTC and XRP are stored separately in this browser.</p>
+      <div class="grid hero" style="margin-top:8px">
+        <div>
+          <div class="muted">BTC held</div>
+          <input id="qtyBTC" inputmode="decimal" placeholder="0.00" style="min-height:40px;width:100%;margin:6px 0;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:0 10px;font-family:ui-monospace,monospace">
+          <div class="muted">BTC purchase $</div>
+          <input id="costBTC" inputmode="decimal" placeholder="65000" style="min-height:40px;width:100%;margin:6px 0;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:0 10px;font-family:ui-monospace,monospace">
+          <div class="muted" id="lineBTC">BTC value —</div>
+        </div>
+        <div>
+          <div class="muted">XRP held</div>
+          <input id="qtyXRP" inputmode="decimal" placeholder="0.00" style="min-height:40px;width:100%;margin:6px 0;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:0 10px;font-family:ui-monospace,monospace">
+          <div class="muted">XRP purchase $</div>
+          <input id="costXRP" inputmode="decimal" placeholder="2.50" style="min-height:40px;width:100%;margin:6px 0;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:0 10px;font-family:ui-monospace,monospace">
+          <div class="muted" id="lineXRP">XRP value —</div>
+        </div>
       </div>
     </div>
     <div class="grid hists" style="margin-top:12px">
@@ -146,48 +153,44 @@ let lastOk = 0;
 let lastPrice = null;
 let hourly = [];
 let fine = [];
+let lastPrices = { BTC:null, XRP:null };
+function bookAll(){
+  try { return JSON.parse(localStorage.getItem("btc-monitor-holdings-v2")||"{}"); } catch { return {}; }
+}
 function loadHoldings(){
-  try{
-    const s=JSON.parse(localStorage.getItem("btc-monitor-holdings")||"{}");
-    if(s.btc) $("holdBtc").value=s.btc;
-    if(s.cash) $("holdCash").value=s.cash;
-    if(s.cost) $("holdCost").value=s.cost;
-  } catch {}
+  const all=bookAll();
+  const old=(()=>{ try { return JSON.parse(localStorage.getItem("btc-monitor-holdings")||"{}"); } catch { return {}; } })();
+  if(!all.BTC && (old.btc||old.cost)) all.BTC={qty:old.btc||0,cost:old.cost||0,cash:old.cash||0};
+  $("qtyBTC").value=all.BTC?.qty||"";
+  $("costBTC").value=all.BTC?.cost||"";
+  $("qtyXRP").value=all.XRP?.qty||"";
+  $("costXRP").value=all.XRP?.cost||"";
   paintHoldings();
 }
 function saveHoldings(){
-  localStorage.setItem("btc-monitor-holdings", JSON.stringify({
-    btc: Number($("holdBtc").value)||0,
-    cash: Number($("holdCash").value)||0,
-    cost: Number($("holdCost").value)||0,
+  localStorage.setItem("btc-monitor-holdings-v2", JSON.stringify({
+    BTC:{ qty:Number($("qtyBTC").value)||0, cost:Number($("costBTC").value)||0, cash:0 },
+    XRP:{ qty:Number($("qtyXRP").value)||0, cost:Number($("costXRP").value)||0, cash:0 },
   }));
   paintHoldings();
 }
+function paintOne(sym, qtyEl, costEl, lineEl){
+  const qty=Number($(qtyEl).value)||0;
+  const cost=Number($(costEl).value)||0;
+  const px=lastPrices[sym];
+  if(px==null){ $(lineEl).textContent=sym+" value —"; return; }
+  const val=qty*px;
+  const basis=cost>0?qty*cost:null;
+  let txt=sym+"  $"+money(val);
+  if(basis!=null){
+    const pnl=val-basis, pct=basis?(pnl/basis)*100:0;
+    txt+="  "+(pnl>=0?"+":"−")+"$"+money(Math.abs(pnl))+" ("+(pct>=0?"+":"")+pct.toFixed(1)+"%)";
+  }
+  $(lineEl).textContent=txt;
+}
 function paintHoldings(){
-  const btc=Number($("holdBtc").value)||0;
-  const cash=Number($("holdCash").value)||0;
-  const cost=Number($("holdCost").value)||0;
-  if(lastPrice==null){
-    $("holdBtcVal").textContent="—";
-    $("holdTotal").textContent="—";
-    $("holdCostVal").textContent="—";
-    $("holdPnl").textContent="—";
-    return;
-  }
-  const btcVal=btc*lastPrice;
-  const basis=cost>0?btc*cost:null;
-  $("holdBtcVal").textContent="$"+money(btcVal);
-  $("holdTotal").textContent="$"+money(btcVal+cash);
-  $("holdCostVal").textContent=basis==null?"—":"$"+money(basis);
-  if(basis==null){
-    $("holdPnl").textContent="—";
-    $("holdPnl").className="price";
-  } else {
-    const pnl=btcVal-basis;
-    const pct=basis?(pnl/basis)*100:0;
-    $("holdPnl").textContent=(pnl>=0?"+":"−")+"$"+money(Math.abs(pnl))+" ("+(pct>=0?"+":"")+pct.toFixed(2)+"%)";
-    $("holdPnl").style.color=pnl>=0?"var(--buy)":"var(--sell)";
-  }
+  paintOne("BTC","qtyBTC","costBTC","lineBTC");
+  paintOne("XRP","qtyXRP","costXRP","lineXRP");
 }
 let barsAt = 0;
 let wakeLock = null;
@@ -330,6 +333,13 @@ async function load(){
     const chg=tick.open?((tick.price-tick.open)/tick.open)*100:0;
     $("px").textContent="$"+money(tick.price);
     lastPrice=tick.price;
+    lastPrices[asset]=tick.price;
+    const other=asset==="BTC"?"XRP":"BTC";
+    if(lastPrices[other]==null){
+      getJson("https://api.exchange.coinbase.com/products/"+PAIR[other].cb+"/ticker").then(t=>{
+        lastPrices[other]=+t.price; paintHoldings();
+      }).catch(()=>{});
+    }
     paintHoldings();
     $("chg").textContent=`${chg>=0?"+":""}${chg.toFixed(2)}% 24h · H ${money(tick.high)} / L ${money(tick.low)}`;
     $("chg").className="muted "+(chg>=0?"up":"down");
@@ -441,9 +451,7 @@ function bindHover(canvas, kind){
   canvas.addEventListener("mouseleave",()=>{ tip.style.display="none"; });
 }
 ["chart","h20","h50","hrsi","hmacd"].forEach(id=>bindHover($(id)));
-$("holdBtc").addEventListener("input", saveHoldings);
-$("holdCash").addEventListener("input", saveHoldings);
-$("holdCost").addEventListener("input", saveHoldings);
+["qtyBTC","costBTC","qtyXRP","costXRP"].forEach(id=>$(id).addEventListener("input", saveHoldings));
 loadHoldings();
 load();
 keepAwake();
