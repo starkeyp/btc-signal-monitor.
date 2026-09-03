@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>Signal Monitor</h1>
-    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds. Build 17.</p>
+    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds. Build 18.</p>
     <div class="row">
       <label>Asset</label>
       <button id="aBtc" class="on">BTC</button>
@@ -196,7 +196,21 @@ const RANGE = { "24h": 24*3600e3, "7d": 7*24*3600e3, "30d": 30*24*3600e3 };
 function sma(a,n){ if(a.length<n) return null; return a.slice(-n).reduce((x,y)=>x+y,0)/n; }
 function ema(a,n){ if(a.length<n) return null; const k=2/(n+1); let e=a.slice(0,n).reduce((x,y)=>x+y,0)/n; for(let i=n;i<a.length;i++) e=a[i]*k+e*(1-k); return e; }
 function rsi(a,n=14){ if(a.length<n+1) return null; let g=0,l=0; for(let i=a.length-n;i<a.length;i++){ const d=a[i]-a[i-1]; if(d>=0) g+=d; else l-=d; } if(!l) return 100; return 100-100/(1+(g/l)); }
-function macd(a){ if(a.length<35) return null; const s=[]; for(let i=26;i<=a.length;i++){ const sl=a.slice(0,i); s.push(ema(sl,12)-ema(sl,26)); } return s.at(-1)-ema(s,9); }
+function macd(a){
+  if(a.length<35) return null;
+  const k12=2/13, k26=2/27, k9=2/10;
+  let e12=a.slice(0,12).reduce((x,y)=>x+y,0)/12;
+  let e26=a.slice(0,26).reduce((x,y)=>x+y,0)/26;
+  const line=[];
+  for(let i=12;i<a.length;i++){
+    if(i>=12) e12=a[i]*k12+e12*(1-k12);
+    if(i>=26){ e26=a[i]*k26+e26*(1-k26); line.push(e12-e26); }
+  }
+  if(line.length<9) return null;
+  let sig=line.slice(0,9).reduce((x,y)=>x+y,0)/9;
+  for(let i=9;i<line.length;i++) sig=line[i]*k9+sig*(1-k9);
+  return line.at(-1)-sig;
+}
 function decide(p,s20,s50,r,h){
   if([s20,s50,r,h].some(v=>v==null)) return ["HOLD","Need more candles."];
   if(p>s50 && r<35) return ["BUY",`Oversold bounce above SMA50, RSI ${r.toFixed(1)}.`];
@@ -326,8 +340,8 @@ async function load(){
     if(!fine.length || Date.now()-barsAt>20000){
       try { fine = await coinbaseFine(); } catch { if(!fine.length) fine = hourly; }
     }
-    if(hourly.length) hourly[hourly.length-1] = { time:hourly[hourly.length-1].time, close:tick.price };
-    if(fine.length) fine[fine.length-1] = { time:fine[fine.length-1].time, close:tick.price };
+    if(hourly.length) hourly = hourly.slice();
+    if(fine.length) fine = fine.slice();
     const hours = signalTf==="4h" ? 4 : signalTf==="1d" ? 24 : 1;
     const signalBars = resample(hourly, hours);
     const closes=signalBars.map(p=>p.close);
