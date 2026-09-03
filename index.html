@@ -71,9 +71,12 @@
       <span class="dot" id="dot"></span>
       <span id="live">Connecting…</span>
     </p>
-    <h1>BTC Signal Monitor</h1>
-    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds while this page stays open. Build 16.</p>
+    <h1>Signal Monitor</h1>
+    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds. Build 17.</p>
     <div class="row">
+      <label>Asset</label>
+      <button id="aBtc" class="on">BTC</button>
+      <button id="aXrp">XRP</button>
       <label>Chart</label>
       <button id="r24" class="on">24 hours</button>
       <button id="r7">Week</button>
@@ -132,7 +135,11 @@
   <div class="tip" id="tip"></div>
 <script>
 const $ = (id) => document.getElementById(id);
-let signalTf = "1h";
+let asset = "BTC";
+const PAIR = {
+  BTC: { cb:"BTC-USD", bs:"btcusd" },
+  XRP: { cb:"XRP-USD", bs:"xrpusd" },
+};
 let chartRange = "24h";
 let lastOk = 0;
 let lastPrice = null;
@@ -248,26 +255,26 @@ async function getJson(url, ms=8000){
 }
 
 async function coinbaseFine(){
-  const raw=await getJson("https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=900",12000);
+  const raw=await getJson(`https://api.exchange.coinbase.com/products/${PAIR[asset].cb}/candles?granularity=900`,12000);
   return raw.map(row=>({time:row[0]*1000,close:+row[4]})).sort((a,b)=>a.time-b.time);
 }
 async function coinbaseHourly(){
-  const raw=await getJson("https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=3600",12000);
+  const raw=await getJson(`https://api.exchange.coinbase.com/products/${PAIR[asset].cb}/candles?granularity=3600`,12000);
   return raw.map(row=>({time:row[0]*1000,close:+row[4]})).sort((a,b)=>a.time-b.time);
 }
 
 async function coinbaseTicker(){
   const [t,s]=await Promise.all([
-    getJson("https://api.exchange.coinbase.com/products/BTC-USD/ticker"),
-    getJson("https://api.exchange.coinbase.com/products/BTC-USD/stats"),
+    getJson(`https://api.exchange.coinbase.com/products/${PAIR[asset].cb}/ticker`),
+    getJson(`https://api.exchange.coinbase.com/products/${PAIR[asset].cb}/stats`),
   ]);
   return { price:+t.price, open:+s.open, high:+s.high, low:+s.low, source:"Coinbase Exchange" };
 }
 
 async function bitstampFallback(){
-  const t=await getJson("https://www.bitstamp.net/api/v2/ticker/btcusd/");
+  const t=await getJson(`https://www.bitstamp.net/api/v2/ticker/${PAIR[asset].bs}/`);
   try{
-    const o=await getJson("https://www.bitstamp.net/api/v2/ohlc/btcusd/?step=3600&limit=168");
+    const o=await getJson(`https://www.bitstamp.net/api/v2/ohlc/${PAIR[asset].bs}/?step=3600&limit=168`);
     hourly = o.data.ohlc.map(r=>({time:+r.timestamp*1000,close:+r.close}));
   } catch {}
   return { price:+t.last, open:+t.open, high:+t.high, low:+t.low, source:"Bitstamp" };
@@ -307,7 +314,7 @@ async function load(){
     paintHoldings();
     $("chg").textContent=`${chg>=0?"+":""}${chg.toFixed(2)}% 24h · H ${money(tick.high)} / L ${money(tick.low)}`;
     $("chg").className="muted "+(chg>=0?"up":"down");
-    $("src").textContent="BTC / USD · "+tick.source;
+    $("src").textContent=asset+" / USD · "+tick.source;
 
     if(!hourly.length || Date.now()-barsAt>20000){
       try { hourly = await coinbaseHourly(); barsAt=Date.now(); } catch { if(!hourly.length) await bitstampFallback(); }
@@ -369,6 +376,8 @@ async function keepAwake(){
 
 function on(id, fn){ $(id).onclick=fn; }
 function mark(group, id){ group.forEach(x=>$(x).classList.remove("on")); $(id).classList.add("on"); }
+on("aBtc",()=>{asset="BTC"; mark(["aBtc","aXrp"],"aBtc"); hourly=[]; fine=[]; barsAt=0; load();});
+on("aXrp",()=>{asset="XRP"; mark(["aBtc","aXrp"],"aXrp"); hourly=[]; fine=[]; barsAt=0; load();});
 on("r24",()=>{chartRange="24h"; mark(["r24","r7","r30"],"r24"); load();});
 on("r7",()=>{chartRange="7d"; mark(["r24","r7","r30"],"r7"); load();});
 on("r30",()=>{chartRange="30d"; mark(["r24","r7","r30"],"r30"); load();});
