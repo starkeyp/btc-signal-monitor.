@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>Signal Monitor</h1>
-    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds. Build 19.</p>
+    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds. Build 20.</p>
     <div class="row">
       <label>Asset</label>
       <button id="aBtc" class="on">BTC</button>
@@ -224,9 +224,6 @@ function money(n){
   return Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
 }
 function fmtMacd(n){ return Number(n).toFixed(Math.abs(n)<1 ? 4 : 1); }
-  const d = asset==="XRP" || Number(n)<100 ? 4 : 2;
-  return Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
-}
 
 function drawLine(canvas, points, color){
   const ctx=canvas.getContext("2d"), dpr=devicePixelRatio||1, w=canvas.clientWidth, h=canvas.clientHeight;
