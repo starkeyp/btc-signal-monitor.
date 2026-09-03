@@ -136,6 +136,7 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let asset = "BTC";
+let signalTf = "1h";
 const PAIR = {
   BTC: { cb:"BTC-USD", bs:"btcusd" },
   XRP: { cb:"XRP-USD", bs:"xrpusd" },
@@ -204,7 +205,10 @@ function decide(p,s20,s50,r,h){
   if(p<s50 && h<0 && r>55) return ["SELL",`Below SMA50, falling MACD, RSI ${r.toFixed(1)}.`];
   return ["HOLD",`No rule fired. SMA20 $${s20.toFixed(0)} / SMA50 $${s50.toFixed(0)}, RSI ${r.toFixed(1)}.`];
 }
-function money(n){ return Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function money(n){
+  const d = asset==="XRP" || Number(n)<100 ? 4 : 2;
+  return Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+}
 
 function drawLine(canvas, points, color){
   const ctx=canvas.getContext("2d"), dpr=devicePixelRatio||1, w=canvas.clientWidth, h=canvas.clientHeight;
