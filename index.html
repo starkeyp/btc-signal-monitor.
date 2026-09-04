@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>Signal Monitor</h1>
-    <p class="muted">Coinbase, Bitstamp, then CoinGecko. Polls every 15 seconds. Build 25.</p>
+    <p class="muted">Coinbase, Bitstamp, then CoinGecko. Polls every 15 seconds. Build 26.</p>
     <div class="row">
       <label>Asset</label>
       <button id="aBtc" class="on">BTC</button>
@@ -151,6 +151,7 @@ const PAIR = {
 let chartRange = "24h";
 let lastOk = 0;
 let lastPrice = null;
+let lastPrices = { BTC:null, XRP:null };
 let hourly = [];
 let fine = [];
 let lastSig = "";
@@ -512,9 +513,10 @@ function bindHover(canvas, kind){
   });
   canvas.addEventListener("mouseleave",()=>{ tip.style.display="none"; });
 }
-["chart","h20","h50","hrsi","hmacd"].forEach(id=>bindHover($(id)));
-["qtyBTC","costBTC","qtyXRP","costXRP"].forEach(id=>$(id).addEventListener("input", saveHoldings));
-loadHoldings();
+["chart","h20","h50","hrsi","hmacd"].forEach(id=>{ const el=$(id); if(el) bindHover(el); });
+["qtyBTC","costBTC","qtyXRP","costXRP"].forEach(id=>{ const el=$(id); if(el) el.addEventListener("input", saveHoldings); });
+try { loadHoldings(); } catch(e){ console.warn(e); }
+setLive("down","Connecting to data feed…");
 load();
 keepAwake();
 setInterval(load, 15000);
