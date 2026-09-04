@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>Signal Monitor</h1>
-    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds. Build 22. Green/red dots on the price chart are BUY/SELL marks.</p>
+    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds. Build 23.</p>
     <div class="row">
       <label>Asset</label>
       <button id="aBtc" class="on">BTC</button>
@@ -396,11 +396,11 @@ async function load(){
     const view=source.filter(p=>p.time>=cut);
     const histMarks=[];
     let prevS=null;
-    const walk=source.filter(p=>p.time>=cut-5*24*3600e3);
-    for(let i=20;i<walk.length;i++){
+    const walk=hourly.slice(-80);
+    for(let i=35;i<walk.length;i+=2){
       const sl=walk.slice(0,i+1).map(p=>p.close);
       const [sg]=decide(walk[i].close,sma(sl,20),sma(sl,50),rsi(sl),macd(sl));
-      if((sg==="BUY"||sg==="SELL") && sg!==prevS && walk[i].time>=cut) histMarks.push({t:walk[i].time,price:walk[i].close,signal:sg});
+      if((sg==="BUY"||sg==="SELL") && sg!==prevS) histMarks.push({t:walk[i].time,price:walk[i].close,signal:sg});
       if(sg==="BUY"||sg==="SELL") prevS=sg;
     }
     window._marks = (loadMarks()[asset]||[]).concat(histMarks);
@@ -500,4 +500,3 @@ document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState=
 </script>
 </body>
 </html>
-
