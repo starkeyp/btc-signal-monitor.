@@ -64,14 +64,15 @@
 <body>
   <main>
     <div class="warn">
-      Indxis Trading Model
+      This copy runs in your browser, not inside Grok. Leave this tab open to keep the feed alive.
+      Host the file on https (Netlify Drop, GitHub Pages) — a raw file open often blocks prices.
     </div>
     <p class="muted" style="display:flex;align-items:center;gap:8px;margin:0 0 6px">
       <span class="dot" id="dot"></span>
       <span id="live">Connecting…</span>
     </p>
     <h1>Signal Monitor</h1>
-    <p class="muted">Coinbase, Bitstamp, then CoinGecko. Polls every 15 seconds. Build 28.</p>
+    <p class="muted">Coinbase, Bitstamp, then CoinGecko. Polls every 15 seconds. Build 29.</p>
     <div class="row">
       <label>Asset</label>
       <button id="aBtc" class="on">BTC</button>
@@ -148,6 +149,29 @@ const PAIR = {
   XRP: { cb:"XRP-USD", bs:"xrpusd" },
 };
 let chartRange = "24h";
+try {
+  const saved=localStorage.getItem("btc-monitor-chart-range");
+  if(saved==="24h"||saved==="7d"||saved==="30d") chartRange=saved;
+} catch {}
+function setRange(next, btn){
+  chartRange=next;
+  try { localStorage.setItem("btc-monitor-chart-range", next); } catch {}
+  mark(["r24","r7","r30"], btn);
+  paintChart();
+}
+function paintChart(){
+  if(!hourly.length && !fine.length) return;
+  const cut=Date.now()-RANGE[chartRange];
+  const source = chartRange==="24h" && fine.length>10 ? fine.slice() : hourly.slice();
+  let view=source.filter(p=>p.time>=cut);
+  if(view.length<8){
+    const take = chartRange==="24h"?96:chartRange==="7d"?168:720;
+    view=source.slice(-take);
+  }
+  if(view.length && lastPrice!=null) view[view.length-1]={ time:view[view.length-1].time, close:lastPrice };
+  const up=view.length>1 ? view.at(-1).close>=view[0].close : true;
+  drawLine($("chart"), view, up?"#3dd68c":"#ff5d6c");
+}
 let lastOk = 0;
 let lastPrice = null;
 let lastPrices = { BTC:null, XRP:null };
@@ -426,9 +450,6 @@ async function load(){
       `<span style="color:${rsic}">RSI ${r==null?"—":r.toFixed(1)}</span> · `+
       `<span style="color:${macdc}">MACD ${h==null?"—":fmtMacd(h)}</span>`;
     $("why").textContent=why;
-    const cut=Date.now()-RANGE[chartRange];
-    const source = chartRange==="24h" && fine.length>10 ? fine : hourly;
-    const view=source.filter(p=>p.time>=cut);
     const histMarks=[];
     let prevS=null;
     const walk=signalBars.slice(-80);
@@ -439,9 +460,8 @@ async function load(){
       if(sg==="BUY"||sg==="SELL") prevS=sg;
     }
     window._marks = (loadMarks()[asset]||[]).concat(histMarks);
-    const up=view.length>1 ? view.at(-1).close>=view[0].close : chg>=0;
+    paintChart();
     try {
-      drawLine($("chart"), view, up?"#3dd68c":"#ff5d6c");
       const last48=signalBars.slice(-48);
       const times=last48.map(p=>p.time);
       const series=last48.map((_,i)=>{
@@ -488,9 +508,9 @@ function on(id, fn){ $(id).onclick=fn; }
 function mark(group, id){ group.forEach(x=>$(x).classList.remove("on")); $(id).classList.add("on"); }
 on("aBtc",()=>{asset="BTC"; mark(["aBtc","aXrp"],"aBtc"); hourly=[]; fine=[]; barsAt=0; window._marks=loadMarks().BTC||[]; load();});
 on("aXrp",()=>{asset="XRP"; mark(["aBtc","aXrp"],"aXrp"); hourly=[]; fine=[]; barsAt=0; window._marks=loadMarks().XRP||[]; load();});
-on("r24",()=>{chartRange="24h"; mark(["r24","r7","r30"],"r24"); load();});
-on("r7",()=>{chartRange="7d"; mark(["r24","r7","r30"],"r7"); load();});
-on("r30",()=>{chartRange="30d"; mark(["r24","r7","r30"],"r30"); load();});
+on("r24",()=>setRange("24h","r24"));
+on("r7",()=>setRange("7d","r7"));
+on("r30",()=>setRange("30d","r30"));
 function setTf(tf, btn){
   signalTf=tf;
   mark(["i1","i4","id"], btn);
@@ -502,6 +522,7 @@ on("i1",()=>setTf("1h","i1"));
 on("i4",()=>setTf("4h","i4"));
 on("id",()=>setTf("1d","id"));
 on("go",()=>load());
+mark(["r24","r7","r30"], chartRange==="7d"?"r7":chartRange==="30d"?"r30":"r24");
 
 const tip=$("tip");
 function bindHover(canvas, kind){
