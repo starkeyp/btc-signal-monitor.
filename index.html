@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>Signal Monitor</h1>
-    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds. Build 23.</p>
+    <p class="muted">Coinbase, Bitstamp, then CoinGecko. Polls every 15 seconds. Build 25.</p>
     <div class="row">
       <label>Asset</label>
       <button id="aBtc" class="on">BTC</button>
@@ -312,6 +312,24 @@ async function coinbaseHourly(){
   return raw.map(row=>({time:row[0]*1000,close:+row[4]})).sort((a,b)=>a.time-b.time);
 }
 
+async function geckoTicker(){
+  const id=asset==="XRP"?"ripple":"bitcoin";
+  const j=await getJson("https://api.coingecko.com/api/v3/simple/price?ids="+id+"&vs_currencies=usd&include_24hr_change=true",8000);
+  const row=j[id];
+  const price=+row.usd;
+  return { price, open: price/(1+(+row.usd_24h_change||0)/100), high:price, low:price, source:"CoinGecko" };
+}
+
+async function anyTicker(){
+  const errors=[];
+  const jobs=[coinbaseTicker(), bitstampFallback(), geckoTicker()];
+  const results=await Promise.allSettled(jobs);
+  for(const r of results){
+    if(r.status==="fulfilled" && r.value && Number.isFinite(r.value.price)) return r.value;
+    if(r.status==="rejected") errors.push(String(r.reason&&r.reason.message||r.reason));
+  }
+  throw new Error(errors.join(" | ")||"No ticker");
+}
 async function coinbaseTicker(){
   const [t,s]=await Promise.all([
     getJson(`https://api.exchange.coinbase.com/products/${PAIR[asset].cb}/ticker`),
@@ -352,9 +370,7 @@ function resample(bars, hours){
 
 async function load(){
   try{
-    let tick=null;
-    try { tick = await coinbaseTicker(); }
-    catch { tick = await bitstampFallback(); }
+    let tick = await anyTicker();
     lastOk=Date.now();
     setLive("live", "Live · "+tick.source+" · 0s ago");
     const chg=tick.open?((tick.price-tick.open)/tick.open)*100:0;
@@ -425,14 +441,21 @@ async function load(){
     } catch (drawErr) { console.warn(drawErr); }
     $("log").textContent = `${new Date().toLocaleTimeString()}  ${sig}  $${money(tick.price)}  ${tick.source}\n`+$("log").textContent.split("\n").slice(0,14).join("\n");
   } catch(e){
-    setLive("down", "Disconnected — "+e.message);
-    $("why").textContent="Feed error: "+e.message;
-    $("chg").textContent="Could not load ticker: "+e.message;
+    if(!lastOk){
+      setLive("down", "Disconnected — "+e.message);
+      $("why").textContent="Feed error: "+e.message;
+      $("chg").textContent="Could not load ticker: "+e.message;
+    } else {
+      setLive("stale", "Last tick kept · retry failed");
+    }
   }
 }
 
 function tickClock(){
-  if(!lastOk){ setLive("down","Disconnected from data feed"); return; }
+  if(!lastOk){
+    if($("live").textContent.indexOf("Live")!==0) setLive("down","Connecting to data feed…");
+    return;
+  }
   const age=Math.round((Date.now()-lastOk)/1000);
   if(age>45) setLive("stale",`Stale · last tick ${age}s ago`);
   else setLive("live", `Live · feed ok · ${age}s ago`);
