@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>Signal Monitor</h1>
-    <p class="muted">Coinbase, Bitstamp, then CoinGecko. Polls every 15 seconds. Build 26.</p>
+    <p class="muted">Coinbase, Bitstamp, then CoinGecko. Polls every 15 seconds. Build 27. Signal buttons 1h / 4h / 1d change the BUY/SELL rules.</p>
     <div class="row">
       <label>Asset</label>
       <button id="aBtc" class="on">BTC</button>
@@ -309,8 +309,19 @@ async function coinbaseFine(){
   return raw.map(row=>({time:row[0]*1000,close:+row[4]})).sort((a,b)=>a.time-b.time);
 }
 async function coinbaseHourly(){
-  const raw=await getJson(`https://api.exchange.coinbase.com/products/${PAIR[asset].cb}/candles?granularity=3600`,12000);
-  return raw.map(row=>({time:row[0]*1000,close:+row[4]})).sort((a,b)=>a.time-b.time);
+  const end=Math.floor(Date.now()/1000);
+  const start=end-90*24*3600;
+  const chunk=280*3600;
+  const reqs=[];
+  for(let c=start;c<end;c+=chunk){
+    const a=new Date(c*1000).toISOString();
+    const b=new Date(Math.min(c+chunk,end)*1000).toISOString();
+    reqs.push(getJson(`https://api.exchange.coinbase.com/products/${PAIR[asset].cb}/candles?granularity=3600&start=${a}&end=${b}`,12000).catch(()=>[]));
+  }
+  const batches=await Promise.all(reqs);
+  const by=new Map();
+  batches.flat().forEach(row=>by.set(row[0],{time:row[0]*1000,close:+row[4]}));
+  return [...by.values()].sort((a,b)=>a.time-b.time);
 }
 
 async function geckoTicker(){
@@ -413,8 +424,8 @@ async function load(){
     const view=source.filter(p=>p.time>=cut);
     const histMarks=[];
     let prevS=null;
-    const walk=hourly.slice(-80);
-    for(let i=35;i<walk.length;i+=2){
+    const walk=signalBars.slice(-80);
+    for(let i=35;i<walk.length;i+=1){
       const sl=walk.slice(0,i+1).map(p=>p.close);
       const [sg]=decide(walk[i].close,sma(sl,20),sma(sl,50),rsi(sl),macd(sl));
       if((sg==="BUY"||sg==="SELL") && sg!==prevS) histMarks.push({t:walk[i].time,price:walk[i].close,signal:sg});
