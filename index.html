@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>Signal Monitor</h1>
-    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds. Build 21.</p>
+    <p class="muted">Coinbase first, then Bitstamp. Polls every 15 seconds. Build 22. Green/red dots on the price chart are BUY/SELL marks.</p>
     <div class="row">
       <label>Asset</label>
       <button id="aBtc" class="on">BTC</button>
@@ -153,7 +153,22 @@ let lastOk = 0;
 let lastPrice = null;
 let hourly = [];
 let fine = [];
-let lastPrices = { BTC:null, XRP:null };
+let lastSig = "";
+function loadMarks(){
+  try { return JSON.parse(localStorage.getItem("btc-monitor-signal-marks-v1")||"{}"); } catch { return {}; }
+}
+function saveMark(sig, price){
+  if(sig!=="BUY" && sig!=="SELL") return;
+  const all=loadMarks();
+  const list=all[asset]||[];
+  const last=list[list.length-1];
+  const now=Date.now();
+  if(last && last.signal===sig && now-last.t<30*60*1000) { window._marks=list; return; }
+  list.push({ t:now, price, signal:sig });
+  all[asset]=list.filter(m=>now-m.t<40*24*3600*1000).slice(-200);
+  localStorage.setItem("btc-monitor-signal-marks-v1", JSON.stringify(all));
+  window._marks=all[asset];
+}
 function bookAll(){
   try { return JSON.parse(localStorage.getItem("btc-monitor-holdings-v2")||"{}"); } catch { return {}; }
 }
@@ -237,6 +252,18 @@ function drawLine(canvas, points, color){
   points.forEach((p,i)=>{ const x=8+i/(points.length-1)*(w-16); const y=h-10-((p.close-lo)/(hi-lo))*(h-20); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
   ctx.strokeStyle=color; ctx.lineWidth=2; ctx.stroke();
   canvas._pts = points; canvas._geo = {w,h,lo,hi};
+  const marks=(window._marks||[]).filter(m=>m.t>=(points[0]?.time||0));
+  marks.forEach(m=>{
+    let best=0, bestD=1e15;
+    points.forEach((p,i)=>{ const d=Math.abs(p.time-m.t); if(d<bestD){ best=i; bestD=d; } });
+    const p=points[best];
+    const x=8+best/Math.max(1,points.length-1)*(w-16);
+    const y=h-10-((p.close-lo)/(hi-lo))*(h-20);
+    ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2);
+    ctx.fillStyle=m.signal==="BUY"?"#3dd68c":"#ff5d6c";
+    ctx.fill();
+    ctx.strokeStyle="#0b1016"; ctx.lineWidth=1.5; ctx.stroke();
+  });
 }
 function drawBars(canvas, values, mode, times){
   const ctx=canvas.getContext("2d"), dpr=devicePixelRatio||1, w=canvas.clientWidth||300, h=canvas.clientHeight||90;
@@ -358,6 +385,8 @@ async function load(){
     const closes=signalBars.map(p=>p.close);
     const s20=sma(closes,20), s50=sma(closes,50), r=rsi(closes), h=macd(closes);
     const [sig,why]=decide(tick.price,s20,s50,r,h);
+    window._marks = (loadMarks()[asset]||[]);
+    saveMark(sig, tick.price);
     $("siglab").textContent="Signal · "+signalTf;
     $("sig").textContent=sig; $("sig").className="badge "+sig.toLowerCase();
     $("stats").textContent=`SMA20 ${s20?("$"+money(s20)):"—"} · SMA50 ${s50?("$"+money(s50)):"—"} · RSI ${r==null?"—":r.toFixed(1)} · MACD ${h==null?"—":fmtMacd(h)}`;
@@ -365,6 +394,16 @@ async function load(){
     const cut=Date.now()-RANGE[chartRange];
     const source = chartRange==="24h" && fine.length>10 ? fine : hourly;
     const view=source.filter(p=>p.time>=cut);
+    const histMarks=[];
+    let prevS=null;
+    const walk=source.filter(p=>p.time>=cut-5*24*3600e3);
+    for(let i=20;i<walk.length;i++){
+      const sl=walk.slice(0,i+1).map(p=>p.close);
+      const [sg]=decide(walk[i].close,sma(sl,20),sma(sl,50),rsi(sl),macd(sl));
+      if((sg==="BUY"||sg==="SELL") && sg!==prevS && walk[i].time>=cut) histMarks.push({t:walk[i].time,price:walk[i].close,signal:sg});
+      if(sg==="BUY"||sg==="SELL") prevS=sg;
+    }
+    window._marks = (loadMarks()[asset]||[]).concat(histMarks);
     const up=view.length>1 ? view.at(-1).close>=view[0].close : chg>=0;
     try {
       drawLine($("chart"), view, up?"#3dd68c":"#ff5d6c");
@@ -405,8 +444,8 @@ async function keepAwake(){
 
 function on(id, fn){ $(id).onclick=fn; }
 function mark(group, id){ group.forEach(x=>$(x).classList.remove("on")); $(id).classList.add("on"); }
-on("aBtc",()=>{asset="BTC"; mark(["aBtc","aXrp"],"aBtc"); hourly=[]; fine=[]; barsAt=0; load();});
-on("aXrp",()=>{asset="XRP"; mark(["aBtc","aXrp"],"aXrp"); hourly=[]; fine=[]; barsAt=0; load();});
+on("aBtc",()=>{asset="BTC"; mark(["aBtc","aXrp"],"aBtc"); hourly=[]; fine=[]; barsAt=0; window._marks=loadMarks().BTC||[]; load();});
+on("aXrp",()=>{asset="XRP"; mark(["aBtc","aXrp"],"aXrp"); hourly=[]; fine=[]; barsAt=0; window._marks=loadMarks().XRP||[]; load();});
 on("r24",()=>{chartRange="24h"; mark(["r24","r7","r30"],"r24"); load();});
 on("r7",()=>{chartRange="7d"; mark(["r24","r7","r30"],"r7"); load();});
 on("r30",()=>{chartRange="30d"; mark(["r24","r7","r30"],"r30"); load();});
@@ -461,3 +500,4 @@ document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState=
 </script>
 </body>
 </html>
+
