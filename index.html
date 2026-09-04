@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>Signal Monitor</h1>
-    <p class="muted">Coinbase, Bitstamp, then CoinGecko. Polls every 15 seconds. Build 27. Signal buttons 1h / 4h / 1d change the BUY/SELL rules.</p>
+    <p class="muted">Coinbase, Bitstamp, then CoinGecko. Polls every 15 seconds. Build 28.</p>
     <div class="row">
       <label>Asset</label>
       <button id="aBtc" class="on">BTC</button>
@@ -417,7 +417,15 @@ async function load(){
     saveMark(sig, tick.price);
     $("siglab").textContent="Signal · "+signalTf;
     $("sig").textContent=sig; $("sig").className="badge "+sig.toLowerCase();
-    $("stats").textContent=`SMA20 ${s20?("$"+money(s20)):"—"} · SMA50 ${s50?("$"+money(s50)):"—"} · RSI ${r==null?"—":r.toFixed(1)} · MACD ${h==null?"—":fmtMacd(h)}`;
+    const sma20c = s20!=null && tick.price>=s20 ? "var(--buy)" : "var(--sell)";
+    const sma50c = s50!=null && tick.price>=s50 ? "var(--buy)" : "var(--sell)";
+    const rsic = r==null ? "var(--muted)" : r<35 ? "var(--buy)" : r>72 ? "var(--sell)" : "var(--hold)";
+    const macdc = h==null ? "var(--muted)" : h>=0 ? "var(--buy)" : "var(--sell)";
+    $("stats").innerHTML =
+      `<span style="color:${sma20c}">SMA20 ${s20?("$"+money(s20)):"—"}</span> · `+
+      `<span style="color:${sma50c}">SMA50 ${s50?("$"+money(s50)):"—"}</span> · `+
+      `<span style="color:${rsic}">RSI ${r==null?"—":r.toFixed(1)}</span> · `+
+      `<span style="color:${macdc}">MACD ${h==null?"—":fmtMacd(h)}</span>`;
     $("why").textContent=why;
     const cut=Date.now()-RANGE[chartRange];
     const source = chartRange==="24h" && fine.length>10 ? fine : hourly;
