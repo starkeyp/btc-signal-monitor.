@@ -83,7 +83,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>Signal Monitor</h1>
-    <p class="muted">Coinbase, Bitstamp, then CoinGecko. NASDAQ 100 via Yahoo Finance. Polls every 15 seconds. Build 33. Hover a chart for the readout line.</p>
+    <p class="muted">Coinbase, Bitstamp, then CoinGecko. NASDAQ 100 via Yahoo Finance. Polls every 15 seconds. Build 34. Crypto BUY is blocked when NASDAQ is risk-off.</p>
     <div class="row">
       <label>Asset</label>
       <button id="aBtc" class="on">BTC</button>
@@ -115,6 +115,7 @@
       <div class="card">
         <div class="muted" id="siglab">Signal · 1h</div>
         <div class="badge hold" id="sig">HOLD</div>
+        <div class="badge hold" id="eq" style="margin-left:8px;font-size:12px">NASDAQ —</div>
         <p class="muted" id="stats" style="margin-top:10px">SMA20 — · SMA50 — · RSI — · MACD —</p>
         <p class="muted" id="why" style="margin-top:12px">Connecting…</p>
       </div>
@@ -153,7 +154,7 @@
       <p class="muted" style="text-transform:uppercase;letter-spacing:.04em;color:var(--fg);margin-top:14px">Signal rules</p>
       <p class="muted"><span style="color:var(--buy)">BUY</span> if price is above SMA50 and RSI is under 35, or price reclaims SMA20 with RSI 35–55 and a rising MACD histogram.</p>
       <p class="muted"><span style="color:var(--sell)">SELL</span> if RSI is over 72 and price is under SMA20, or price is under SMA50 with a falling MACD histogram and RSI still above 55.</p>
-      <p class="muted"><span style="color:var(--hold)">HOLD</span> otherwise. 1h / 4h / 1d only changes which candles the signal uses. Educational only — this page does not place trades.</p>
+      <p class="muted"><span style="color:var(--hold)">HOLD</span> otherwise, and when a crypto BUY prints while NASDAQ 100 is risk-off (below its average with a negative MACD). 1h / 4h / 1d only changes which candles the signal uses. Educational only — this page does not place trades.</p>
     </div>
     <div class="card" style="margin-top:12px"><pre id="log">No ticks yet.</pre></div>
   </main>
@@ -274,6 +275,20 @@ function macd(a){
   for(let i=9;i<line.length;i++) sig=line[i]*k9+sig*(1-k9);
   return line.at(-1)-sig;
 }
+function equityRegime(closes){
+  if(closes.length<30) return {regime:"NA", why:"Not enough NASDAQ bars."};
+  const px=closes.at(-1), s20=sma(closes,20), s50=sma(closes,50), h=macd(closes);
+  if(s20==null||h==null) return {regime:"NA", why:"NASDAQ warming up."};
+  if(px>s20 && h>0) return {regime:"RISK_ON", why:"NASDAQ 100 is above SMA20 with a positive MACD histogram."};
+  if((s50!=null && px<s50 && h<0) || (px<s20 && h<0)) return {regime:"RISK_OFF", why:"NASDAQ 100 is below its average with a negative MACD histogram."};
+  return {regime:"NEUTRAL", why:"NASDAQ 100 is mixed."};
+}
+function applyEquity(sig, why, eq){
+  if(eq.regime==="RISK_OFF" && sig==="BUY") return ["HOLD", `Blocked by NASDAQ risk-off. ${eq.why} Crypto setup was: ${why}`, sig];
+  if(eq.regime==="RISK_ON" && sig==="BUY") return [sig, `NASDAQ risk-on supports this BUY. ${why}`, sig];
+  if(eq.regime==="RISK_OFF" && sig==="SELL") return [sig, `NASDAQ risk-off agrees with this SELL. ${why}`, sig];
+  return [sig, why, sig];
+}
 function decide(p,s20,s50,r,h){
   if([s20,s50,r,h].some(v=>v==null)) return ["HOLD","Need more candles."];
   if(p>s50 && r<35) return ["BUY",`Oversold bounce above SMA50, RSI ${r.toFixed(1)}.`];
@@ -377,6 +392,29 @@ async function coinbaseProduct(product, gran, days){
   const by=new Map();
   batches.flat().forEach(row=>{ if(row&&row[0]) by.set(row[0],{time:row[0]*1000,close:+row[4]}); });
   return [...by.values()].sort((a,b)=>a.time-b.time);
+}
+async function ndxForSignal(){
+  const spec = signalTf==="1d" ? ["1d","1y"] : ["60m","3mo"];
+  const path="v8/finance/chart/";
+  const qs="?interval="+spec[0]+"&range="+spec[1];
+  const symbols=["%5ENDX","QQQ"];
+  const hosts=["https://query1.finance.yahoo.com/","https://query2.finance.yahoo.com/"];
+  for(const sym of symbols){
+    const direct=hosts[0]+path+sym+qs;
+    const tries=[direct, hosts[1]+path+sym+qs, "https://corsproxy.io/?"+encodeURIComponent(direct)];
+    for(const href of tries){
+      try{
+        const j=await getJson(href,8000);
+        const r=j.chart&&j.chart.result&&j.chart.result[0];
+        if(!r||!r.timestamp) continue;
+        const ts=r.timestamp||[], cl=(r.indicators.quote[0].close)||[];
+        const out=[];
+        for(let i=0;i<ts.length;i++) if(cl[i]!=null) out.push({time:ts[i]*1000,close:+cl[i]});
+        if(out.length) return signalTf==="4h" ? resample(out,4) : out;
+      } catch {}
+    }
+  }
+  return [];
 }
 async function yahooNdx(){
   const spec = chartRange==="24h" ? ["15m","1d"] : chartRange==="7d" ? ["60m","5d"] : chartRange==="30d" ? ["60m","1mo"] : ["1d","1y"];
@@ -561,11 +599,20 @@ async function load(){
     const signalBars = resample(hourly, hours);
     const closes=signalBars.map(p=>p.close);
     const s20=sma(closes,20), s50=sma(closes,50), r=rsi(closes), h=macd(closes);
-    const [sig,why]=decide(tick.price,s20,s50,r,h);
+    const [rawSig, rawWhy]=decide(tick.price,s20,s50,r,h);
+    let eq={regime:"NA", why:"NASDAQ not loaded."};
+    try {
+      const ndxBars = await ndxForSignal();
+      eq = equityRegime(ndxBars.map(p=>p.close));
+    } catch {}
+    const [sig,why]=applyEquity(rawSig, rawWhy, eq);
     window._marks = (loadMarks()[asset]||[]);
     saveMark(sig, tick.price);
     $("siglab").textContent="Signal · "+signalTf;
     $("sig").textContent=sig; $("sig").className="badge "+sig.toLowerCase();
+    const eqLab = eq.regime==="RISK_ON"?"NASDAQ risk-on":eq.regime==="RISK_OFF"?"NASDAQ risk-off":eq.regime==="NEUTRAL"?"NASDAQ mixed":"NASDAQ —";
+    $("eq").textContent=eqLab;
+    $("eq").className="badge "+(eq.regime==="RISK_ON"?"buy":eq.regime==="RISK_OFF"?"sell":"hold");
     const sma20c = s20!=null && tick.price>=s20 ? "var(--buy)" : "var(--sell)";
     const sma50c = s50!=null && tick.price>=s50 ? "var(--buy)" : "var(--sell)";
     const rsic = r==null ? "var(--muted)" : r<35 ? "var(--buy)" : r>72 ? "var(--sell)" : "var(--hold)";
