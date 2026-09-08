@@ -83,7 +83,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>Signal Monitor</h1>
-    <p class="muted">Coinbase, Bitstamp, then CoinGecko. Equity: NASDAQ, QQQ, S&P, Dow, then ETH. Build 35.</p>
+    <p class="muted">Coinbase, Bitstamp, then CoinGecko. Equity: NASDAQ, QQQ, S&P, Dow, then ETH. Build 36.</p>
     <div class="row">
       <label>Asset</label>
       <button id="aBtc" class="on">BTC</button>
@@ -148,13 +148,16 @@
     </div>
     <div class="card" style="margin-top:12px">
       <p class="muted" style="text-transform:uppercase;letter-spacing:.04em;color:var(--fg)">How to read this board</p>
-      <p class="muted"><b style="color:var(--fg)">SMA 20 / SMA 50</b> are average closes over 20 and 50 candles. Price above both usually means an uptrend; below both a downtrend. The 48h bars show whether those averages are rising or falling.</p>
-      <p class="muted"><b style="color:var(--fg)">RSI 14</b> is momentum on a 0–100 scale. Below 30 is oversold (bounce risk up). Above 70 is overbought (fade risk down). Mid 40–60 is neutral.</p>
-      <p class="muted"><b style="color:var(--fg)">MACD histogram</b> is trend acceleration. Green / positive = upside pressure building. Red / negative = downside pressure building. A flip through zero is a momentum change.</p>
+      <p class="muted"><b style="color:var(--fg)">Price chart</b> is the selected coin in USD. Green dots are BUY prints, red dots are SELL. Hover (or drag on a phone) for the vertical readout line and the value. 24h / Week / Month / 1 year only change how much history is drawn. 1h / 4h / 1d change which candles the BUY/SELL rules use.</p>
+      <p class="muted"><b style="color:var(--fg)">Rebased chart</b> puts BTC, XRP, and an equity benchmark on the same scale, starting at 100 at the left of the window. Gold = BTC, blue = XRP, purple = NASDAQ 100 — or QQQ, S&P 500, Dow, or ETH if Nasdaq is blocked. 100 → 112 means +12% over that window.</p>
+      <p class="muted"><b style="color:var(--fg)">SMA 20 / SMA 50</b> are average closes over 20 and 50 candles. Green if price is above that average, red if below. The 48h bars show whether those averages are rising or falling.</p>
+      <p class="muted"><b style="color:var(--fg)">RSI 14</b> is momentum 0–100. Green under 35 (buy zone), red over 72 (sell zone), amber in between. Below ~30 is oversold; above ~70 is overbought.</p>
+      <p class="muted"><b style="color:var(--fg)">MACD histogram</b> is trend acceleration. Green / positive = upside pressure. Red / negative = downside pressure. A flip through zero is a momentum change.</p>
       <p class="muted" style="text-transform:uppercase;letter-spacing:.04em;color:var(--fg);margin-top:14px">Signal rules</p>
       <p class="muted"><span style="color:var(--buy)">BUY</span> if price is above SMA50 and RSI is under 35, or price reclaims SMA20 with RSI 35–55 and a rising MACD histogram.</p>
       <p class="muted"><span style="color:var(--sell)">SELL</span> if RSI is over 72 and price is under SMA20, or price is under SMA50 with a falling MACD histogram and RSI still above 55.</p>
-      <p class="muted"><span style="color:var(--hold)">HOLD</span> otherwise, and when a crypto BUY prints while NASDAQ 100 is risk-off (below its average with a negative MACD). 1h / 4h / 1d only changes which candles the signal uses. Educational only — this page does not place trades.</p>
+      <p class="muted"><span style="color:var(--hold)">HOLD</span> if no crypto rule fires, <b style="color:var(--fg)">or</b> if a crypto BUY prints while the equity badge is risk-off (index below its average with a negative MACD). Risk-on supports a BUY; it does not create one. If Nasdaq is unavailable the filter uses QQQ, S&P, Dow, or ETH.</p>
+      <p class="muted"><b style="color:var(--fg)">Holdings</b> are stored only in this browser. Purchase price vs live price is unrealized P/L. Educational only — this page does not place trades.</p>
     </div>
     <div class="card" style="margin-top:12px"><pre id="log">No ticks yet.</pre></div>
   </main>
