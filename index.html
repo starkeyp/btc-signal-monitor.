@@ -83,7 +83,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>Signal Monitor</h1>
-    <p class="muted">Coinbase, Bitstamp, then CoinGecko. NASDAQ 100 via Yahoo Finance. Polls every 15 seconds. Build 34. Crypto BUY is blocked when NASDAQ is risk-off.</p>
+    <p class="muted">Coinbase, Bitstamp, then CoinGecko. Equity: NASDAQ, QQQ, S&P, Dow, then ETH. Build 35.</p>
     <div class="row">
       <label>Asset</label>
       <button id="aBtc" class="on">BTC</button>
@@ -107,7 +107,7 @@
         <canvas id="chart"></canvas>
       </div>
       <div class="card">
-        <div class="muted">Rebased to 100 · BTC / XRP / NASDAQ 100</div>
+        <div class="muted">Rebased to 100 · BTC / XRP / equity or ETH fallback</div>
         <div class="muted" id="cmpLeg" style="margin-top:6px">BTC — · XRP — · NDX —</div>
         <canvas id="cmp"></canvas>
       </div>
@@ -198,7 +198,7 @@ let lastPrices = { BTC:null, XRP:null };
 let hourly = [];
 let fine = [];
 let daily = [];
-let cmp = { btc:[], xrp:[], ndx:[], at:0 };
+let cmp = { btc:[], xrp:[], ndx:[], at:0, label:"NDX" };
 let lastSig = "";
 function loadMarks(){
   try { return JSON.parse(localStorage.getItem("btc-monitor-signal-marks-v1")||"{}"); } catch { return {}; }
@@ -393,15 +393,15 @@ async function coinbaseProduct(product, gran, days){
   batches.flat().forEach(row=>{ if(row&&row[0]) by.set(row[0],{time:row[0]*1000,close:+row[4]}); });
   return [...by.values()].sort((a,b)=>a.time-b.time);
 }
-async function ndxForSignal(){
-  const spec = signalTf==="1d" ? ["1d","1y"] : ["60m","3mo"];
-  const path="v8/finance/chart/";
-  const qs="?interval="+spec[0]+"&range="+spec[1];
-  const symbols=["%5ENDX","QQQ"];
-  const hosts=["https://query1.finance.yahoo.com/","https://query2.finance.yahoo.com/"];
-  for(const sym of symbols){
-    const direct=hosts[0]+path+sym+qs;
-    const tries=[direct, hosts[1]+path+sym+qs, "https://corsproxy.io/?"+encodeURIComponent(direct)];
+async function yahooEquity(interval, range){
+  const specs=[
+    ["%5ENDX","NDX"],["QQQ","QQQ"],["%5EGSPC","SPX"],["SPY","SPY"],["DIA","DOW"]
+  ];
+  const qs="?interval="+interval+"&range="+range;
+  const hosts=["https://query1.finance.yahoo.com/v8/finance/chart/","https://query2.finance.yahoo.com/v8/finance/chart/"];
+  for(const [sym,code] of specs){
+    const direct=hosts[0]+sym+qs;
+    const tries=[direct, hosts[1]+sym+qs, "https://corsproxy.io/?"+encodeURIComponent(direct), "https://api.allorigins.win/raw?url="+encodeURIComponent(direct)];
     for(const href of tries){
       try{
         const j=await getJson(href,8000);
@@ -410,34 +410,28 @@ async function ndxForSignal(){
         const ts=r.timestamp||[], cl=(r.indicators.quote[0].close)||[];
         const out=[];
         for(let i=0;i<ts.length;i++) if(cl[i]!=null) out.push({time:ts[i]*1000,close:+cl[i]});
-        if(out.length) return signalTf==="4h" ? resample(out,4) : out;
+        if(out.length>5) return { bars:out, code };
       } catch {}
     }
   }
-  return [];
+  return { bars:[], code:"—" };
+}
+async function ndxForSignal(){
+  const spec = signalTf==="1d" ? ["1d","1y"] : ["60m","3mo"];
+  let pack=await yahooEquity(spec[0], spec[1]);
+  if(!pack.bars.length) pack=await yahooEquity("60m","1mo");
+  if(pack.bars.length) return signalTf==="4h" ? resample(pack.bars,4) : pack.bars;
+  const eth=await coinbaseProduct("ETH-USD", signalTf==="1d"?86400:3600, signalTf==="1d"?400:40).catch(()=>[]);
+  return signalTf==="4h" ? resample(eth,4) : eth;
 }
 async function yahooNdx(){
   const spec = chartRange==="24h" ? ["15m","1d"] : chartRange==="7d" ? ["60m","5d"] : chartRange==="30d" ? ["60m","1mo"] : ["1d","1y"];
-  const path="v8/finance/chart/";
-  const qs="?interval="+spec[0]+"&range="+spec[1];
-  const symbols=["%5ENDX","QQQ"];
-  const hosts=["https://query1.finance.yahoo.com/","https://query2.finance.yahoo.com/"];
-  for(const sym of symbols){
-    const direct=hosts[0]+path+sym+qs;
-    const tries=[direct, hosts[1]+path+sym+qs, "https://corsproxy.io/?"+encodeURIComponent(direct)];
-    for(const href of tries){
-      try{
-        const j=await getJson(href,8000);
-        const r=j.chart&&j.chart.result&&j.chart.result[0];
-        if(!r||!r.timestamp) continue;
-        const ts=r.timestamp||[], cl=(r.indicators.quote[0].close)||[];
-        const out=[];
-        for(let i=0;i<ts.length;i++) if(cl[i]!=null) out.push({time:ts[i]*1000,close:+cl[i]});
-        if(out.length) return out;
-      } catch {}
-    }
-  }
-  return [];
+  const pack=await yahooEquity(spec[0], spec[1]);
+  if(pack.bars.length){ cmp.label=pack.code; return pack.bars; }
+  const gran=chartRange==="24h"?900:chartRange==="1y"?86400:3600;
+  const days=chartRange==="24h"?2:chartRange==="7d"?8:chartRange==="30d"?35:400;
+  cmp.label="ETH";
+  return coinbaseProduct("ETH-USD", gran, days).catch(()=>[]);
 }
 function rebaseSeries(bars, cut){
   const src=bars.filter(p=>p.time>=cut && p.close>0);
@@ -459,7 +453,7 @@ function paintCompare(){
   $("cmpLeg").innerHTML =
     `<span style="color:var(--hold)">BTC ${fmt(chg(btc))}</span> · `+
     `<span style="color:var(--accent)">XRP ${fmt(chg(xrp))}</span> · `+
-    `<span style="color:#c9a0ff">NDX ${fmt(chg(ndx))}</span>`;
+    `<span style="color:#c9a0ff">${cmp.label||"EQ"} ${fmt(chg(ndx))}</span>`;
   if(all.length<2) return;
   const t0=Math.min(...all.map(p=>p.time)), t1=Math.max(...all.map(p=>p.time));
   const ys=all.map(p=>p.close), min=Math.min(...ys), max=Math.max(...ys), pad=(max-min)*0.08||1, lo=min-pad, hi=max+pad;
@@ -590,7 +584,7 @@ async function load(){
           coinbaseProduct("XRP-USD", gran, days),
           yahooNdx().catch(()=>[]),
         ]);
-        cmp={ btc:b, xrp:x, ndx:n, at:Date.now() };
+        cmp={ btc:b, xrp:x, ndx:n, at:Date.now(), label: cmp.label||"NDX" };
       } catch {}
     }
     if(hourly.length) hourly = hourly.slice();
@@ -758,7 +752,7 @@ function bindHover(canvas){
       html=`${new Date(t).toLocaleString()}<br>`+
         (b?`<span style="color:var(--hold)">BTC ${b.close.toFixed(1)}</span><br>`:"")+
         (xr?`<span style="color:var(--accent)">XRP ${xr.close.toFixed(1)}</span><br>`:"")+
-        (n?`<span style="color:#c9a0ff">NDX ${n.close.toFixed(1)}</span>`:"");
+        (n?`<span style="color:#c9a0ff">${cmp.label||"EQ"} ${n.close.toFixed(1)}</span>`:"");
       const geo={h:g.h,lo:g.lo,hi:g.hi};
       if(b) dots.push({y:yAt(b.close, geo), color:"#e0b445"});
       if(xr) dots.push({y:yAt(xr.close, geo), color:"#6aa8ff"});
