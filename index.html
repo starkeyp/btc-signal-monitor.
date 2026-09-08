@@ -41,6 +41,17 @@
     .sell { background: rgba(255,93,108,.14); color: var(--sell); }
     .hold { background: rgba(224,180,69,.14); color: var(--hold); }
     canvas { width: 100%; height: 220px; display: block; }
+    .chart-box { position: relative; }
+    .hair {
+      position: absolute; top: 0; bottom: 0; width: 0;
+      border-left: 1px dashed #8b9bb0;
+      pointer-events: none; display: none; z-index: 2;
+    }
+    .hair-dot {
+      position: absolute; width: 9px; height: 9px; margin: -4px 0 0 -4px;
+      border-radius: 99px; border: 1px solid #0b1016;
+      pointer-events: none; display: none; z-index: 3;
+    }
     .warn { border: 1px solid #3a4a22; background: #141b10; color: #d7e6a8; padding: 12px; border-radius: 10px; font-size: 13px; line-height: 1.5; margin-bottom: 14px; }
     .dot { width: 9px; height: 9px; border-radius: 99px; background: var(--buy); position: relative; display: inline-block; }
     .dot::after {
@@ -72,7 +83,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>Signal Monitor</h1>
-    <p class="muted">Coinbase, Bitstamp, then CoinGecko. NASDAQ 100 via Yahoo Finance. Polls every 15 seconds. Build 31.</p>
+    <p class="muted">Coinbase, Bitstamp, then CoinGecko. NASDAQ 100 via Yahoo Finance. Polls every 15 seconds. Build 33. Hover a chart for the readout line.</p>
     <div class="row">
       <label>Asset</label>
       <button id="aBtc" class="on">BTC</button>
@@ -285,7 +296,7 @@ function drawLine(canvas, points, color){
   ctx.beginPath();
   points.forEach((p,i)=>{ const x=8+i/(points.length-1)*(w-16); const y=h-10-((p.close-lo)/(hi-lo))*(h-20); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
   ctx.strokeStyle=color; ctx.lineWidth=2; ctx.stroke();
-  canvas._pts = points; canvas._geo = {w,h,lo,hi};
+  canvas._pts = points; canvas._geo = {w,h,lo,hi}; canvas._stroke = color;
   const marks=(window._marks||[]).filter(m=>m.t>=(points[0]?.time||0));
   marks.forEach(m=>{
     let best=0, bestD=1e15;
@@ -324,7 +335,7 @@ function drawBars(canvas, values, mode, times){
     ctx.fillRect(x, Math.min(y,base), bw, Math.max(2,Math.abs(y-base)));
   });
   canvas._hover = values.map((v,i)=>({ time: times?.[i], value:v, mode }));
-  canvas._geo = {w};
+  canvas._geo = {w,h,min,max:max,span};
 }
 
 async function getJson(url, ms=8000){
@@ -410,7 +421,7 @@ function paintCompare(){
   $("cmpLeg").innerHTML =
     `<span style="color:var(--hold)">BTC ${fmt(chg(btc))}</span> · `+
     `<span style="color:var(--accent)">XRP ${fmt(chg(xrp))}</span> · `+
-    `<span style="color:#f4b942">NDX ${fmt(chg(ndx))}</span>`;
+    `<span style="color:#c9a0ff">NDX ${fmt(chg(ndx))}</span>`;
   if(all.length<2) return;
   const t0=Math.min(...all.map(p=>p.time)), t1=Math.max(...all.map(p=>p.time));
   const ys=all.map(p=>p.close), min=Math.min(...ys), max=Math.max(...ys), pad=(max-min)*0.08||1, lo=min-pad, hi=max+pad;
@@ -424,7 +435,7 @@ function paintCompare(){
     });
     ctx.strokeStyle=color; ctx.lineWidth=2; ctx.stroke();
   }
-  line(btc,"#e0b445"); line(xrp,"#6aa8ff"); line(ndx,"#f4b942");
+  line(btc,"#e0b445"); line(xrp,"#6aa8ff"); line(ndx,"#c9a0ff");
   canvas._cmp = { btc, xrp, ndx, t0, t1, w, h, lo, hi };
 }
 async function coinbaseFine(){
@@ -642,11 +653,51 @@ on("go",()=>load());
 mark(["r24","r7","r30","r1y"], chartRange==="7d"?"r7":chartRange==="30d"?"r30":chartRange==="1y"?"r1y":"r24");
 
 const tip=$("tip");
-function bindHover(canvas, kind){
-  canvas.addEventListener("mousemove", (ev)=>{
+function yAt(val, geo){
+  return geo.h-10-((val-geo.lo)/(geo.hi-geo.lo))*(geo.h-20);
+}
+function ensureHair(canvas){
+  if(canvas._hair) return;
+  const box=document.createElement("div");
+  box.className="chart-box";
+  canvas.parentNode.insertBefore(box, canvas);
+  box.appendChild(canvas);
+  const hair=document.createElement("div");
+  hair.className="hair";
+  box.appendChild(hair);
+  canvas._hair=hair;
+  canvas._dots=[];
+  for(let i=0;i<3;i++){
+    const d=document.createElement("div");
+    d.className="hair-dot";
+    box.appendChild(d);
+    canvas._dots.push(d);
+  }
+}
+function hideHair(canvas){
+  if(canvas._hair) canvas._hair.style.display="none";
+  (canvas._dots||[]).forEach(d=>d.style.display="none");
+}
+function showHair(canvas, x, dots){
+  ensureHair(canvas);
+  canvas._hair.style.display="block";
+  canvas._hair.style.left=Math.max(0,x)+"px";
+  (canvas._dots||[]).forEach((d,i)=>{
+    const spec=dots[i];
+    if(!spec){ d.style.display="none"; return; }
+    d.style.display="block";
+    d.style.left=x+"px";
+    d.style.top=spec.y+"px";
+    d.style.background=spec.color;
+  });
+}
+function bindHover(canvas){
+  ensureHair(canvas);
+  function read(clientX, clientY){
     const rect=canvas.getBoundingClientRect();
-    const x=ev.clientX-rect.left;
+    const x=clientX-rect.left;
     let html=null;
+    const dots=[];
     if(canvas._cmp){
       const g=canvas._cmp;
       const t=g.t0+(x-8)/Math.max(1,g.w-16)*(g.t1-g.t0);
@@ -660,12 +711,19 @@ function bindHover(canvas, kind){
       html=`${new Date(t).toLocaleString()}<br>`+
         (b?`<span style="color:var(--hold)">BTC ${b.close.toFixed(1)}</span><br>`:"")+
         (xr?`<span style="color:var(--accent)">XRP ${xr.close.toFixed(1)}</span><br>`:"")+
-        (n?`<span>NDX ${n.close.toFixed(1)}</span>`:"");
+        (n?`<span style="color:#c9a0ff">NDX ${n.close.toFixed(1)}</span>`:"");
+      const geo={h:g.h,lo:g.lo,hi:g.hi};
+      if(b) dots.push({y:yAt(b.close, geo), color:"#e0b445"});
+      if(xr) dots.push({y:yAt(xr.close, geo), color:"#6aa8ff"});
+      if(n) dots.push({y:yAt(n.close, geo), color:"#c9a0ff"});
+      showHair(canvas, x, dots);
     } else if(canvas._pts && canvas._geo){
       const pts=canvas._pts, geo=canvas._geo;
       const i=Math.max(0,Math.min(pts.length-1, Math.round((x-8)/(geo.w-16)*(pts.length-1))));
       const p=pts[i];
+      const px=8+i/Math.max(1,pts.length-1)*(geo.w-16);
       html=`${new Date(p.time).toLocaleString()}<br><b>$${money(p.close)}</b>`;
+      showHair(canvas, px, [{ y:yAt(p.close, geo), color: canvas._stroke||"#3dd68c" }]);
     } else if(canvas._hover){
       const rows=canvas._hover;
       const i=Math.max(0,Math.min(rows.length-1, Math.floor(x/Math.max(1,rect.width/rows.length))));
@@ -674,14 +732,23 @@ function bindHover(canvas, kind){
         ? (row.value==null?"—":fmtMacd(row.value))
         : (row.value==null?"—":"$"+money(row.value));
       html=`${row.time?new Date(row.time).toLocaleString():""}<br><b>${label}</b>`;
+      const px=4+(i+0.5)*((rect.width-8)/rows.length);
+      showHair(canvas, px, []);
     }
     if(!html) return;
     tip.style.display="block";
-    tip.style.left=(ev.clientX+12)+"px";
-    tip.style.top=(ev.clientY-36)+"px";
+    tip.style.left=(clientX+12)+"px";
+    tip.style.top=(clientY-36)+"px";
     tip.innerHTML=html;
-  });
-  canvas.addEventListener("mouseleave",()=>{ tip.style.display="none"; });
+  }
+  canvas.addEventListener("mousemove", (ev)=>read(ev.clientX, ev.clientY));
+  canvas.addEventListener("touchmove", (ev)=>{
+    const t=ev.touches[0]; if(t) read(t.clientX, t.clientY);
+  }, {passive:true});
+  canvas.addEventListener("touchstart", (ev)=>{
+    const t=ev.touches[0]; if(t) read(t.clientX, t.clientY);
+  }, {passive:true});
+  canvas.addEventListener("mouseleave",()=>{ tip.style.display="none"; hideHair(canvas); });
 }
 ["chart","cmp","h20","h50","hrsi","hmacd"].forEach(id=>{ const el=$(id); if(el) bindHover(el); });
 ["qtyBTC","costBTC","qtyXRP","costXRP"].forEach(id=>{ const el=$(id); if(el) el.addEventListener("input", saveHoldings); });
