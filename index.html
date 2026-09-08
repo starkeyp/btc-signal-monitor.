@@ -72,7 +72,7 @@
       <span id="live">Connecting…</span>
     </p>
     <h1>Signal Monitor</h1>
-    <p class="muted">Coinbase, Bitstamp, then CoinGecko. NASDAQ 100 via Yahoo Finance. Polls every 15 seconds. Build 30.</p>
+    <p class="muted">Coinbase, Bitstamp, then CoinGecko. NASDAQ 100 via Yahoo Finance. Polls every 15 seconds. Build 31.</p>
     <div class="row">
       <label>Asset</label>
       <button id="aBtc" class="on">BTC</button>
@@ -369,11 +369,26 @@ async function coinbaseProduct(product, gran, days){
 }
 async function yahooNdx(){
   const spec = chartRange==="24h" ? ["15m","1d"] : chartRange==="7d" ? ["60m","5d"] : chartRange==="30d" ? ["60m","1mo"] : ["1d","1y"];
-  const j=await getJson("https://query1.finance.yahoo.com/v8/finance/chart/%5ENDX?interval="+spec[0]+"&range="+spec[1],10000);
-  const r=j.chart.result[0], ts=r.timestamp||[], cl=r.indicators.quote[0].close||[];
-  const out=[];
-  for(let i=0;i<ts.length;i++) if(cl[i]!=null) out.push({time:ts[i]*1000,close:+cl[i]});
-  return out;
+  const path="v8/finance/chart/";
+  const qs="?interval="+spec[0]+"&range="+spec[1];
+  const symbols=["%5ENDX","QQQ"];
+  const hosts=["https://query1.finance.yahoo.com/","https://query2.finance.yahoo.com/"];
+  for(const sym of symbols){
+    const direct=hosts[0]+path+sym+qs;
+    const tries=[direct, hosts[1]+path+sym+qs, "https://corsproxy.io/?"+encodeURIComponent(direct)];
+    for(const href of tries){
+      try{
+        const j=await getJson(href,8000);
+        const r=j.chart&&j.chart.result&&j.chart.result[0];
+        if(!r||!r.timestamp) continue;
+        const ts=r.timestamp||[], cl=(r.indicators.quote[0].close)||[];
+        const out=[];
+        for(let i=0;i<ts.length;i++) if(cl[i]!=null) out.push({time:ts[i]*1000,close:+cl[i]});
+        if(out.length) return out;
+      } catch {}
+    }
+  }
+  return [];
 }
 function rebaseSeries(bars, cut){
   const src=bars.filter(p=>p.time>=cut && p.close>0);
@@ -395,7 +410,7 @@ function paintCompare(){
   $("cmpLeg").innerHTML =
     `<span style="color:var(--hold)">BTC ${fmt(chg(btc))}</span> · `+
     `<span style="color:var(--accent)">XRP ${fmt(chg(xrp))}</span> · `+
-    `<span style="color:var(--fg)">NDX ${fmt(chg(ndx))}</span>`;
+    `<span style="color:#f4b942">NDX ${fmt(chg(ndx))}</span>`;
   if(all.length<2) return;
   const t0=Math.min(...all.map(p=>p.time)), t1=Math.max(...all.map(p=>p.time));
   const ys=all.map(p=>p.close), min=Math.min(...ys), max=Math.max(...ys), pad=(max-min)*0.08||1, lo=min-pad, hi=max+pad;
@@ -409,7 +424,7 @@ function paintCompare(){
     });
     ctx.strokeStyle=color; ctx.lineWidth=2; ctx.stroke();
   }
-  line(btc,"#e0b445"); line(xrp,"#6aa8ff"); line(ndx,"#e8eef6");
+  line(btc,"#e0b445"); line(xrp,"#6aa8ff"); line(ndx,"#f4b942");
   canvas._cmp = { btc, xrp, ndx, t0, t1, w, h, lo, hi };
 }
 async function coinbaseFine(){
